@@ -53,8 +53,8 @@ console.log(`[worker] demarrage : poll toutes les ${pollIntervalMs}ms, batch=${b
 await tick(); // premiere passe immediate
 const pollTimer = setInterval(tick, pollIntervalMs);
 
-// Serveur HTTP d'ingestion (optionnel : actif si INGEST_TOKEN defini)
-const httpServer = startServer();
+// Serveur HTTP (ingestion PDV + dashboard admin) — actif si au moins un token defini.
+const httpServer = startServer({ analysisService });
 
 async function shutdown(signal) {
   if (stopping) return;
