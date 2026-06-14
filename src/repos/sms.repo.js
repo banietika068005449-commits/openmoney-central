@@ -5,9 +5,9 @@ import { pool } from '../db.js';
 const COLUMNS = `
   s.id, s.sender, s.content, s.received_at, s.smsc_ts, s.status,
   s.point_de_vente,
-  a.sms_type, a.operator AS analysis_operator, a.amount, a.balance, a.currency,
-  a.phone_number, a.reference, a.transaction_id, a.confidence,
-  a.provider AS analysis_provider, a.extracted_data, a.analysis_status
+  a.operator AS analysis_operator, a.amount, a.balance, a.currency,
+  a.phone_number, a.reference, a.transaction_id,
+  a.extracted_data, a.analysis_status
 `;
 
 const BASE_SELECT = `
@@ -24,7 +24,6 @@ export async function listSms(f) {
   const where = [];
   const params = [];
   if (f.status)   { params.push(f.status);            where.push(`s.status = $${params.length}`); }
-  if (f.smsType)  { params.push(f.smsType);           where.push(`a.sms_type = $${params.length}`); }
   if (f.operator) { params.push(f.operator);          where.push(`a.operator = $${params.length}`); }
   if (f.q)        { params.push(`%${f.q}%`);          where.push(`(s.sender ILIKE $${params.length} OR s.content ILIKE $${params.length})`); }
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';

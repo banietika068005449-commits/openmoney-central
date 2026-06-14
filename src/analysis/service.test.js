@@ -43,6 +43,8 @@ test('analyzeOne : insere une ligne sms_analysis et passe sms.status=analyzed', 
   const r = await service.analyzeOne(sms.id);
 
   assert.ok(r);
+  // r.provider et r.smsType sont toujours calcules en interne par les analyseurs ;
+  // ils ne sont juste plus persistes dans sms_analysis (depuis 2026-06).
   assert.equal(r.provider, 'mtn-sms-analyzer');
   assert.equal(r.smsType, 'money_received');
   assert.equal(r.amount, 10000);
@@ -52,12 +54,10 @@ test('analyzeOne : insere une ligne sms_analysis et passe sms.status=analyzed', 
   assert.equal(smsRow.status, 'analyzed');
 
   const { rows: [aRow] } = await pool.query(
-    `SELECT provider, sms_type, amount, balance, currency, phone_number, reference, analysis_status
+    `SELECT amount, balance, currency, phone_number, reference, analysis_status
      FROM sms_analysis WHERE sms_id=$1`,
     [sms.id],
   );
-  assert.equal(aRow.provider, 'mtn-sms-analyzer');
-  assert.equal(aRow.sms_type, 'money_received');
   assert.equal(Number(aRow.amount), 10000);
   assert.equal(Number(aRow.balance), 25000);
   assert.equal(aRow.currency, 'FCFA');

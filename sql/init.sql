@@ -52,9 +52,17 @@ CREATE TABLE IF NOT EXISTS sms_analysis (
   UNIQUE (sms_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_sms_analysis_sms_type ON sms_analysis (sms_type);
 CREATE INDEX IF NOT EXISTS idx_sms_analysis_operator ON sms_analysis (operator);
 CREATE INDEX IF NOT EXISTS idx_sms_analysis_created  ON sms_analysis (created_at DESC);
+
+-- Suppression des colonnes inutiles cote metier :
+--   - provider, confidence : debug technique, non consomme par l'UI
+--   - sms_type : OpenMoney ne traite que les depots d'argent. Tout le reste
+--     est marque "ignored" en amont (cf. service.js), donc sms_type est trivial.
+ALTER TABLE sms_analysis DROP COLUMN IF EXISTS provider;
+ALTER TABLE sms_analysis DROP COLUMN IF EXISTS confidence;
+DROP INDEX IF EXISTS idx_sms_analysis_sms_type;
+ALTER TABLE sms_analysis DROP COLUMN IF EXISTS sms_type;
 
 -- Providers AI (LLM) utilises en fallback intelligent pour l'analyse SMS.
 -- provider_type autorises : openai | anthropic | google | mistral | custom

@@ -41,30 +41,27 @@ export async function insertSms({ sender, content, smscTs, modemIndex, raw }) {
 export async function insertAnalysis(client, smsId, r) {
   await client.query(
     `INSERT INTO sms_analysis
-       (sms_id, provider, operator, sms_type, amount, balance, currency,
-        phone_number, reference, transaction_id, confidence, extracted_data,
+       (sms_id, operator, amount, balance, currency,
+        phone_number, reference, transaction_id, extracted_data,
         analysis_status, error_message)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (sms_id) DO UPDATE SET
-       provider        = EXCLUDED.provider,
        operator        = EXCLUDED.operator,
-       sms_type        = EXCLUDED.sms_type,
        amount          = EXCLUDED.amount,
        balance         = EXCLUDED.balance,
        currency        = EXCLUDED.currency,
        phone_number    = EXCLUDED.phone_number,
        reference       = EXCLUDED.reference,
        transaction_id  = EXCLUDED.transaction_id,
-       confidence      = EXCLUDED.confidence,
        extracted_data  = EXCLUDED.extracted_data,
        analysis_status = EXCLUDED.analysis_status,
        error_message   = EXCLUDED.error_message,
        created_at      = NOW()`,
     [
-      smsId, r.provider, r.operator ?? null, r.smsType,
+      smsId, r.operator ?? null,
       r.amount ?? null, r.balance ?? null, r.currency ?? 'FCFA',
       r.phoneNumber ?? null, r.reference ?? null, r.transactionId ?? null,
-      r.confidence ?? 0, r.extractedData ?? {},
+      r.extractedData ?? {},
       r.analysisStatus, r.errorMessage ?? null,
     ],
   );

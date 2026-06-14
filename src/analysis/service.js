@@ -65,6 +65,13 @@ export class SmsAnalysisService {
       /** @type {import('./types.js').SmsAnalysisResult} */
       const result = await provider.analyze(sms.sender, sms.content);
 
+      // OpenMoney ne traite que les depots d'argent. Tout SMS qui n'est pas
+      // money_received est explicitement marque ignored, meme si le provider
+      // l'a reconnu (ex. money_sent, payment, balance_check, notification...).
+      if (result.smsType !== 'money_received' && result.analysisStatus !== 'ignored') {
+        result.analysisStatus = 'ignored';
+      }
+
       await insertAnalysis(client, smsId, result);
 
       const finalStatus = result.analysisStatus === 'ignored' ? 'ignored' : 'analyzed';
