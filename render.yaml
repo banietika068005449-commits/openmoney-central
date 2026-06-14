@@ -1,0 +1,33 @@
+# Blueprint Render pour l'API centrale OpenMoney.
+# https://render.com/docs/blueprint-spec
+#
+# Une fois ce fichier present a la racine d'un repo connecte a Render,
+# Render provisionne automatiquement le service web a partir de cette spec.
+#
+# Les secrets (DATABASE_URL, INGEST_TOKEN) sont a definir dans le dashboard
+# Render -> Service -> Environment. Ils ne doivent JAMAIS apparaitre ici.
+
+services:
+  - type: web
+    name: openmoney-central
+    runtime: node
+    plan: starter           # 7$/mois, 512 Mo RAM. Free tier dort apres 15 min idle, evite pour un worker.
+    region: frankfurt       # cohabite avec la Postgres Neon en eu-central-1
+    branch: main
+    rootDir: .
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      # Render injecte automatiquement PORT, lu en priorite par src/http/server.js.
+      - key: POLL_INTERVAL_MS
+        value: 5000
+      - key: BATCH_SIZE
+        value: 50
+      - key: DATABASE_URL
+        sync: false         # secret -> defini manuellement dans le dashboard
+      - key: INGEST_TOKEN
+        sync: false         # secret -> defini manuellement dans le dashboard

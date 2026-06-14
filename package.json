@@ -1,0 +1,24 @@
+{
+  "name": "openmoney-analysis-worker",
+  "version": "0.2.0",
+  "description": "Worker Node.js qui interroge une base Postgres (table sms) et analyse les SMS Mobile Money via regex + LLM, en ecrivant le resultat dans sms_analysis.",
+  "main": "src/index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "migrate": "node src/migrate.js",
+    "test": "node --test src/analysis/providers/extractors.test.js src/analysis/service.test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.22.2",
+    "express-rate-limit": "^7.5.1",
+    "helmet": "^8.2.0",
+    "pg": "^8.13.1",
+    "zod": "^3.25.76"
+  }
+}
