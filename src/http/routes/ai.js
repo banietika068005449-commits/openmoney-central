@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdminToken } from '../middleware/admin.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../../analysis/providers/ai.js';
+import { getSystemPrompt, setSystemPrompt } from '../../repos/setting.repo.js';
 import {
   listProviders, getProviderById, createProvider, updateProvider, deleteProvider,
   listKeys, createKey, updateKey, deleteKey,
@@ -10,18 +11,48 @@ import {
 const router = Router();
 router.use(requireAdminToken);
 
+// Prompt par defaut code (fallback si le parametre n'est pas defini).
 router.get('/default-prompt', (_req, res) => {
   res.json({ prompt: DEFAULT_SYSTEM_PROMPT });
 });
 
+// Prompt systeme global -- partage par tous les providers LLM.
+router.get('/system-prompt', async (_req, res, next) => {
+  try {
+    const custom = await getSystemPrompt();
+    res.json({
+      prompt: custom ?? '',
+      isDefault: !custom,
+      defaultPrompt: DEFAULT_SYSTEM_PROMPT,
+    });
+  } catch (e) { next(e); }
+});
+
+const systemPromptSchema = z.object({
+  prompt: z.string().max(20000).optional(),
+});
+
+router.put('/system-prompt', async (req, res, next) => {
+  try {
+    const { prompt } = systemPromptSchema.parse(req.body);
+    await setSystemPrompt(prompt && prompt.trim() ? prompt.trim() : null);
+    const custom = await getSystemPrompt();
+    res.json({
+      prompt: custom ?? '',
+      isDefault: !custom,
+      defaultPrompt: DEFAULT_SYSTEM_PROMPT,
+    });
+  } catch (e) { next(e); }
+});
+
 // ---- Providers ----
 
+// name est optionnel : auto-genere depuis providerType + model si absent.
 const providerCreateSchema = z.object({
-  name:         z.string().min(1).max(200),
+  name:         z.string().min(1).max(200).optional(),
   providerType: z.enum(['openai', 'anthropic', 'google', 'mistral', 'custom']),
   model:        z.string().min(1).max(200),
   baseUrl:      z.string().url().nullable().optional(),
-  systemPrompt: z.string().nullable().optional(),
 });
 
 const providerUpdateSchema = providerCreateSchema.partial().extend({
@@ -67,6 +98,7 @@ router.delete('/providers/:id', async (req, res, next) => {
 
 // ---- Keys ----
 
+// label optionnel (l'UI ne l'expose plus, mais on garde la possibilite cote API).
 const keyCreateSchema = z.object({
   label:  z.string().max(120).nullable().optional(),
   apiKey: z.string().min(1).max(2000),

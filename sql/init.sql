@@ -57,12 +57,14 @@ CREATE INDEX IF NOT EXISTS idx_sms_analysis_created  ON sms_analysis (created_at
 
 -- Suppression des colonnes inutiles cote metier :
 --   - provider, confidence : debug technique, non consomme par l'UI
---   - sms_type : OpenMoney ne traite que les depots d'argent. Tout le reste
---     est marque "ignored" en amont (cf. service.js), donc sms_type est trivial.
+--   - sms_type : OpenMoney ne traite que les depots, le reste est ignored
+--   - balance : le solde est global (carte SIM partagee), pas individuel.
+--     OpenMoney ne stocke que le montant verse par chaque client.
 ALTER TABLE sms_analysis DROP COLUMN IF EXISTS provider;
 ALTER TABLE sms_analysis DROP COLUMN IF EXISTS confidence;
 DROP INDEX IF EXISTS idx_sms_analysis_sms_type;
 ALTER TABLE sms_analysis DROP COLUMN IF EXISTS sms_type;
+ALTER TABLE sms_analysis DROP COLUMN IF EXISTS balance;
 
 -- Providers AI (LLM) utilises en fallback intelligent pour l'analyse SMS.
 -- provider_type autorises : openai | anthropic | google | mistral | custom
@@ -98,3 +100,20 @@ CREATE TABLE IF NOT EXISTS ai_provider_key (
 
 CREATE INDEX IF NOT EXISTS idx_ai_provider_key_provider ON ai_provider_key (provider_id);
 CREATE INDEX IF NOT EXISTS idx_ai_provider_key_active   ON ai_provider_key (is_active);
+
+-- Simplification du modele AI :
+--   - system_prompt n'est plus un champ par provider, mais un parametre global
+--     (cf. table parametre ci-dessous + cle 'system_prompt'). Un seul prompt
+--     systeme pour tous les providers, edite depuis le dashboard.
+--   - name n'est plus obligatoire : l'API auto-genere "${providerType}/${model}"
+--     si non fourni.
+ALTER TABLE ai_provider DROP COLUMN IF EXISTS system_prompt;
+ALTER TABLE ai_provider ALTER COLUMN name DROP NOT NULL;
+
+-- Parametres globaux (cle/valeur). Cles utilisees :
+--   system_prompt : prompt systeme partage par les analyseurs LLM.
+CREATE TABLE IF NOT EXISTS parametre (
+    cle             VARCHAR(64) PRIMARY KEY,
+    valeur          TEXT,
+    mis_a_jour_le   TIMESTAMPTZ NOT NULL DEFAULT now()
+);

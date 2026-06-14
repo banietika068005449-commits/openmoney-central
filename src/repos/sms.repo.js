@@ -5,7 +5,7 @@ import { pool } from '../db.js';
 const COLUMNS = `
   s.id, s.sender, s.content, s.received_at, s.smsc_ts, s.status,
   s.point_de_vente,
-  a.operator AS analysis_operator, a.amount, a.balance, a.currency,
+  a.operator AS analysis_operator, a.amount, a.currency,
   a.phone_number, a.reference, a.transaction_id,
   a.extracted_data, a.analysis_status
 `;

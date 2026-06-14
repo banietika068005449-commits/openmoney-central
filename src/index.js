@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { pool } from './db.js';
 import { SmsAnalysisService } from './analysis/service.js';
 import { SmsAnalyzerRegistry } from './analysis/registry.js';
+import { PromoSmsAnalyzer } from './analysis/providers/promo.js';
 import { MtnSmsAnalyzer } from './analysis/providers/mtn.js';
 import { AirtelSmsAnalyzer } from './analysis/providers/airtel.js';
 import { AiSmsAnalyzer } from './analysis/providers/ai.js';
@@ -22,6 +23,7 @@ const batchSize = Number(BATCH_SIZE);
 
 const aiAnalyzer = new AiSmsAnalyzer();
 const registry = new SmsAnalyzerRegistry([
+  new PromoSmsAnalyzer(),        // EN PREMIER : court-circuite les SMS promo avant le LLM
   new MtnSmsAnalyzer(),
   new AirtelSmsAnalyzer(),
   aiAnalyzer,                    // canAnalyze=true si une cle AI est active

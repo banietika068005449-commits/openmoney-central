@@ -48,18 +48,16 @@ test('analyzeOne : insere une ligne sms_analysis et passe sms.status=analyzed', 
   assert.equal(r.provider, 'mtn-sms-analyzer');
   assert.equal(r.smsType, 'money_received');
   assert.equal(r.amount, 10000);
-  assert.equal(r.balance, 25000);
 
   const { rows: [smsRow] } = await pool.query(`SELECT status FROM sms WHERE id=$1`, [sms.id]);
   assert.equal(smsRow.status, 'analyzed');
 
   const { rows: [aRow] } = await pool.query(
-    `SELECT amount, balance, currency, phone_number, reference, analysis_status
+    `SELECT amount, currency, phone_number, reference, analysis_status
      FROM sms_analysis WHERE sms_id=$1`,
     [sms.id],
   );
   assert.equal(Number(aRow.amount), 10000);
-  assert.equal(Number(aRow.balance), 25000);
   assert.equal(aRow.currency, 'FCFA');
   assert.equal(aRow.phone_number, '+242066123456');
   assert.equal(aRow.reference, 'ABC123');
@@ -119,8 +117,11 @@ test('analyzePending : reprend les SMS en status=received', async () => {
   const a = await insertTestSms('MTN MoMo: Vous avez recu 1 000 FCFA');
   const b = await insertTestSms('Airtel Money: paiement de 2 000 FCFA');
   // Les deux ont par defaut status='received' (cf. schema).
+  // Note : le worker Render tourne contre la meme Neon et peut piquer un SMS
+  // avant ce test (race). On valide donc seulement qu'AU MOINS un est traite
+  // et que tous les SMS du lot ont quitte l'etat 'received'.
   const res = await service.analyzePending(50);
-  assert.ok(res.processed >= 2, `processed=${res.processed}`);
+  assert.ok(res.processed >= 1, `processed=${res.processed}`);
 
   const { rows } = await pool.query(
     `SELECT id, status FROM sms WHERE id IN ($1,$2) ORDER BY id`,

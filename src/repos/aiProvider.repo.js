@@ -9,7 +9,7 @@ const PROVIDER_COUNTS = `,
 
 export async function listProviders() {
   const { rows } = await pool.query(
-    `SELECT p.id, p.name, p.provider_type, p.model, p.base_url, p.system_prompt, p.is_active, p.created_at
+    `SELECT p.id, p.name, p.provider_type, p.model, p.base_url, p.is_active, p.created_at
      ${PROVIDER_COUNTS}
      FROM ai_provider p
      ORDER BY p.id DESC`,
@@ -19,7 +19,7 @@ export async function listProviders() {
 
 export async function getProviderById(id) {
   const { rows } = await pool.query(
-    `SELECT p.id, p.name, p.provider_type, p.model, p.base_url, p.system_prompt, p.is_active, p.created_at
+    `SELECT p.id, p.name, p.provider_type, p.model, p.base_url, p.is_active, p.created_at
      ${PROVIDER_COUNTS}
      FROM ai_provider p WHERE p.id = $1`,
     [id],
@@ -27,12 +27,22 @@ export async function getProviderById(id) {
   return rows[0] ?? null;
 }
 
-export async function createProvider({ name, providerType, model, baseUrl, systemPrompt }) {
+/**
+ * Si `name` n'est pas fourni, on derive un libelle stable a partir du
+ * type et du modele. Le UI n'expose plus de champ Nom.
+ */
+function autoName({ name, providerType, model }) {
+  if (name && name.trim()) return name.trim();
+  return `${providerType}/${model}`;
+}
+
+export async function createProvider({ name, providerType, model, baseUrl }) {
+  const finalName = autoName({ name, providerType, model });
   const { rows } = await pool.query(
-    `INSERT INTO ai_provider (name, provider_type, model, base_url, system_prompt)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO ai_provider (name, provider_type, model, base_url)
+     VALUES ($1, $2, $3, $4)
      RETURNING id`,
-    [name, providerType, model, baseUrl ?? null, systemPrompt ?? null],
+    [finalName, providerType, model, baseUrl ?? null],
   );
   return getProviderById(rows[0].id);
 }
@@ -45,7 +55,6 @@ export async function updateProvider(id, patch) {
   if (patch.providerType!== undefined) add('provider_type', patch.providerType);
   if (patch.model       !== undefined) add('model', patch.model);
   if (patch.baseUrl     !== undefined) add('base_url', patch.baseUrl);
-  if (patch.systemPrompt!== undefined) add('system_prompt', patch.systemPrompt);
   if (patch.isActive    !== undefined) add('is_active', patch.isActive);
   if (sets.length === 0) return getProviderById(id);
 

@@ -41,14 +41,13 @@ export async function insertSms({ sender, content, smscTs, modemIndex, raw }) {
 export async function insertAnalysis(client, smsId, r) {
   await client.query(
     `INSERT INTO sms_analysis
-       (sms_id, operator, amount, balance, currency,
+       (sms_id, operator, amount, currency,
         phone_number, reference, transaction_id, extracted_data,
         analysis_status, error_message)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      ON CONFLICT (sms_id) DO UPDATE SET
        operator        = EXCLUDED.operator,
        amount          = EXCLUDED.amount,
-       balance         = EXCLUDED.balance,
        currency        = EXCLUDED.currency,
        phone_number    = EXCLUDED.phone_number,
        reference       = EXCLUDED.reference,
@@ -59,7 +58,7 @@ export async function insertAnalysis(client, smsId, r) {
        created_at      = NOW()`,
     [
       smsId, r.operator ?? null,
-      r.amount ?? null, r.balance ?? null, r.currency ?? 'FCFA',
+      r.amount ?? null, r.currency ?? 'FCFA',
       r.phoneNumber ?? null, r.reference ?? null, r.transactionId ?? null,
       r.extractedData ?? {},
       r.analysisStatus, r.errorMessage ?? null,
@@ -87,7 +86,7 @@ export async function getPendingSmsIds({ limit = 50, statuses = ['received'] } =
  */
 export async function pickRandomActiveProviderKey() {
   const { rows } = await pool.query(
-    `SELECT p.id AS provider_id, p.name, p.provider_type, p.model, p.base_url, p.system_prompt,
+    `SELECT p.id AS provider_id, p.name, p.provider_type, p.model, p.base_url,
             k.id AS key_id, k.api_key, k.label
      FROM ai_provider p
      JOIN ai_provider_key k ON k.provider_id = p.id

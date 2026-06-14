@@ -1,5 +1,6 @@
 import { BaseSmsAnalyzer } from './base.js';
 import { pickRandomActiveProviderKey, bumpKeyUsage } from '../../db.js';
+import { getSystemPrompt as fetchSystemPrompt } from '../../repos/setting.repo.js';
 
 // AiSmsAnalyzer : fallback intelligent qui appelle un LLM (OpenAI/Anthropic/Google/Mistral).
 // Une cle est tiree aleatoirement parmi les couples (provider, key) actifs.
@@ -7,8 +8,8 @@ import { pickRandomActiveProviderKey, bumpKeyUsage } from '../../db.js';
 // canAnalyze : utilise un flag cache (rafraichi par refresh()) pour eviter de
 // hit la DB a chaque SMS. L'index.js declenche un refresh periodique.
 
-// Prompt systeme par defaut. Peut etre surcharge au niveau de chaque provider
-// via la colonne ai_provider.system_prompt.
+// Prompt systeme par defaut. Surcharge globale possible via parametre.system_prompt
+// (un seul prompt pour TOUS les providers LLM, edite depuis le dashboard).
 export const DEFAULT_SYSTEM_PROMPT = `Tu analyses des SMS bancaires/mobile money africains. Tu reponds UNIQUEMENT par un JSON valide, sans markdown, avec les champs :
 - smsType : un parmi "money_received"|"money_sent"|"payment"|"cash_out"|"cash_in"|"balance_check"|"notification"|"unknown"
 - amount : montant principal en chiffres (number) ou null
@@ -32,6 +33,8 @@ export class AiSmsAnalyzer extends BaseSmsAnalyzer {
   operator = null;
   /** @type {boolean} flag cache : vrai si au moins un (provider, key) actif existe */
   hasActiveKey = false;
+  /** @type {string} prompt systeme global cache, rafraichi avec refresh() */
+  systemPrompt = DEFAULT_SYSTEM_PROMPT;
 
   constructor({ logger = console } = {}) {
     super();
@@ -40,11 +43,13 @@ export class AiSmsAnalyzer extends BaseSmsAnalyzer {
 
   canAnalyze(_sender, _content) { return this.hasActiveKey; }
 
-  /** Met a jour le flag canAnalyze. A appeler periodiquement depuis index.js. */
+  /** Met a jour le flag canAnalyze + le prompt systeme global. */
   async refresh() {
     try {
       const row = await pickRandomActiveProviderKey();
       this.hasActiveKey = !!row;
+      const custom = await fetchSystemPrompt();
+      this.systemPrompt = (custom && custom.trim()) ? custom : DEFAULT_SYSTEM_PROMPT;
     } catch (err) {
       this.logger.warn?.(`[ai-analyzer] refresh : ${err.message}`);
       this.hasActiveKey = false;
@@ -93,9 +98,9 @@ export class AiSmsAnalyzer extends BaseSmsAnalyzer {
     };
   }
 
-  /** Appelle le LLM selon le provider_type. Utilise system_prompt du provider si defini. */
-  async _callLlm({ provider_type, model, base_url, api_key, system_prompt }, sender, content) {
-    const systemPrompt = (system_prompt && system_prompt.trim()) ? system_prompt : DEFAULT_SYSTEM_PROMPT;
+  /** Appelle le LLM selon le provider_type. Utilise le systemPrompt global cache. */
+  async _callLlm({ provider_type, model, base_url, api_key }, sender, content) {
+    const systemPrompt = this.systemPrompt;
     const userMsg = PROMPT_USER(sender, content);
 
     switch (provider_type) {
