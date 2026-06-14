@@ -11,8 +11,9 @@ services:
   - type: web
     name: openmoney-central
     runtime: node
-    plan: starter           # 7$/mois, 512 Mo RAM. Free tier dort apres 15 min idle, evite pour un worker.
+    plan: free              # Free tier : dort apres 15 min d'inactivite. Upgrade en 'starter' (7$/mois) avant prod serieuse.
     region: frankfurt       # cohabite avec la Postgres Neon en eu-central-1
+    repo: https://github.com/ambitechdynamics-debug/openmoney-central
     branch: main
     rootDir: .
     buildCommand: npm ci
