@@ -21,8 +21,13 @@ ALTER TABLE sms ADD COLUMN IF NOT EXISTS uuid           UUID;
 ALTER TABLE sms ADD COLUMN IF NOT EXISTS empreinte      CHAR(64);
 ALTER TABLE sms ADD COLUMN IF NOT EXISTS point_de_vente TEXT;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_sms_uuid      ON sms (uuid)      WHERE uuid      IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_sms_empreinte ON sms (empreinte) WHERE empreinte IS NOT NULL;
+-- Indexes uniques sans predicate : PostgreSQL traite plusieurs NULL comme distincts
+-- (donc les anciennes lignes sans uuid/empreinte restent autorisees) et ON CONFLICT
+-- ne supporte l'inference que sur un index unique complet.
+DROP INDEX IF EXISTS uq_sms_uuid;
+DROP INDEX IF EXISTS uq_sms_empreinte;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sms_uuid      ON sms (uuid);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sms_empreinte ON sms (empreinte);
 CREATE INDEX        IF NOT EXISTS idx_sms_pdv      ON sms (point_de_vente);
 
 -- Resultat d'analyse pour chaque SMS. 1 ligne par sms_id (UNIQUE).
