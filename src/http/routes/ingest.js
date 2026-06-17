@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireIngestToken } from '../middleware/auth.js';
 import { ingest } from '../../ingest/service.js';
+import { pool } from '../../db.js';
 
 const router = Router();
 
@@ -27,6 +28,104 @@ router.post('/ingest', requireIngestToken, async (req, res, next) => {
   try {
     const result = await ingest(parsed.data);
     res.json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+const analysisQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(500).default(200),
+  offset: z.coerce.number().int().nonnegative().default(0),
+  operator: z.string().optional(),
+  q: z.string().optional(),
+  from: z.string().datetime().optional(),
+});
+
+function buildAnalysisWhere(filters) {
+  const where = [
+    "s.status = 'analyzed'",
+    "a.analysis_status = 'success'",
+  ];
+  const params = [];
+
+  if (filters.operator) {
+    params.push(filters.operator);
+    where.push(`a.operator = $${params.length}`);
+  }
+  if (filters.q) {
+    params.push(`%${filters.q}%`);
+    where.push(`(s.sender ILIKE $${params.length} OR s.content ILIKE $${params.length} OR a.phone_number ILIKE $${params.length} OR a.reference ILIKE $${params.length})`);
+  }
+  if (filters.from) {
+    params.push(filters.from);
+    where.push(`s.received_at >= $${params.length}`);
+  }
+
+  return { whereSql: `WHERE ${where.join(' AND ')}`, params };
+}
+
+router.get('/analysis/summary', requireIngestToken, async (req, res, next) => {
+  const parsed = analysisQuerySchema.omit({ limit: true, offset: true }).safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Filtres invalides', details: parsed.error.flatten() });
+  }
+
+  try {
+    const { whereSql, params } = buildAnalysisWhere(parsed.data);
+    const { rows } = await pool.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COALESCE(SUM(a.amount), 0)::float8 AS somme_depots
+       FROM sms s
+       JOIN sms_analysis a ON a.sms_id = s.id
+       ${whereSql}`,
+      params,
+    );
+    res.json({
+      total: rows[0]?.total ?? 0,
+      sommeDepots: rows[0]?.somme_depots ?? 0,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/analysis/sms', requireIngestToken, async (req, res, next) => {
+  const parsed = analysisQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Filtres invalides', details: parsed.error.flatten() });
+  }
+
+  try {
+    const { limit, offset, ...filters } = parsed.data;
+    const { whereSql, params } = buildAnalysisWhere(filters);
+    const totalQ = await pool.query(
+      `SELECT COUNT(*)::int AS total
+       FROM sms s
+       JOIN sms_analysis a ON a.sms_id = s.id
+       ${whereSql}`,
+      params,
+    );
+
+    params.push(limit, offset);
+    const itemsQ = await pool.query(
+      `SELECT
+         s.id, s.sender, s.content, s.received_at, s.point_de_vente,
+         a.operator, a.amount, a.currency, a.phone_number, a.reference, a.transaction_id
+       FROM sms s
+       JOIN sms_analysis a ON a.sms_id = s.id
+       ${whereSql}
+       ORDER BY s.received_at DESC, s.id DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
+
+    res.json({
+      items: itemsQ.rows,
+      total: totalQ.rows[0]?.total ?? 0,
+      limit,
+      offset,
+    });
   } catch (e) {
     next(e);
   }
