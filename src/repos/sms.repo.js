@@ -33,6 +33,19 @@ export async function listSms(f) {
     params,
   );
 
+  // Ces indicateurs alimentent le dashboard admin. Ils portent toujours sur
+  // l'ensemble des SMS et ne doivent donc reprendre ni les filtres ni la
+  // pagination de la liste ci-dessous.
+  const statsQ = await pool.query(`
+    SELECT
+      COUNT(*)::int AS total_sms,
+      (COUNT(*) FILTER (WHERE s.status = 'analyzed'))::int AS analyzed,
+      (COUNT(*) FILTER (WHERE s.status = 'failed'))::int AS failed,
+      (COUNT(*) FILTER (WHERE s.status = 'ignored'))::int AS ignored,
+      COALESCE(SUM(a.amount) FILTER (WHERE s.status = 'analyzed'), 0) AS deposit_sum
+    ${BASE_SELECT}
+  `);
+
   params.push(f.limit, f.offset);
   const itemsQ = await pool.query(
     `SELECT ${COLUMNS} ${BASE_SELECT} ${whereSql}
@@ -41,7 +54,20 @@ export async function listSms(f) {
     params,
   );
 
-  return { items: itemsQ.rows, total: totalQ.rows[0].n, limit: f.limit, offset: f.offset };
+  const rawStats = statsQ.rows[0];
+  return {
+    items: itemsQ.rows,
+    total: totalQ.rows[0].n,
+    limit: f.limit,
+    offset: f.offset,
+    stats: {
+      total: rawStats.total_sms,
+      analyzed: rawStats.analyzed,
+      failed: rawStats.failed,
+      ignored: rawStats.ignored,
+      sommeDepots: Number(rawStats.deposit_sum),
+    },
+  };
 }
 
 export async function getSmsById(id) {

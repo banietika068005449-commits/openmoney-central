@@ -117,3 +117,18 @@ CREATE TABLE IF NOT EXISTS parametre (
     valeur          TEXT,
     mis_a_jour_le   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Jetons d'acces au dashboard. Le secret brut n'est jamais conserve : seule
+-- son empreinte SHA-256 permet de verifier les requetes entrantes.
+CREATE TABLE IF NOT EXISTS access_token (
+    id              BIGSERIAL    PRIMARY KEY,
+    label           VARCHAR(120) NOT NULL,
+    token_hash      CHAR(64)     NOT NULL UNIQUE,
+    token_prefix    VARCHAR(24)  NOT NULL,
+    is_active       BOOLEAN      NOT NULL DEFAULT true,
+    last_used_at    TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    revoked_at      TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_token_active ON access_token (is_active);
