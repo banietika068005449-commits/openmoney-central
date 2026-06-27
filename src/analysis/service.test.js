@@ -59,7 +59,7 @@ test('analyzeOne : insere une ligne sms_analysis et passe sms.status=analyzed', 
   );
   assert.equal(Number(aRow.amount), 10000);
   assert.equal(aRow.currency, 'FCFA');
-  assert.equal(aRow.phone_number, '+242066123456');
+  assert.equal(aRow.phone_number, '066123456');
   assert.equal(aRow.reference, 'ABC123');
   assert.equal(aRow.analysis_status, 'success');
 });

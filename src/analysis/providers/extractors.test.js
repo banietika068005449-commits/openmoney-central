@@ -75,7 +75,12 @@ test('amount et balance distincts dans le meme SMS', () => {
 
 test('extractPhoneNumber: format international +xxx', () => {
   const sms = 'Vous avez recu 10 000 FCFA de +242066123456';
-  assert.equal(base.extractPhoneNumber(sms), '+242066123456');
+  assert.equal(base.extractPhoneNumber(sms), '066123456');
+});
+
+test('extractPhoneNumber: numero Congo sans indicatif reste local', () => {
+  const sms = 'Vous avez recu 756.00 CFA du 053119025 .Reference: NA. Solde: 1210082.75 CFA.';
+  assert.equal(base.extractPhoneNumber(sms), '053119025');
 });
 
 test('extractPhoneNumber: aucun numero -> null', () => {
@@ -134,6 +139,10 @@ test('detectCurrency: FCFA explicite', () => {
   assert.equal(base.detectCurrency('Solde: 10 000 FCFA'), 'FCFA');
 });
 
+test('detectCurrency: CFA explicite', () => {
+  assert.equal(base.detectCurrency('Solde: 10 000 CFA'), 'CFA');
+});
+
 test('detectCurrency: XAF', () => {
   assert.equal(base.detectCurrency('Solde: 10 000 XAF'), 'XAF');
 });
@@ -154,7 +163,7 @@ test('Cas 1 (spec) : recu + solde + ref + phone', async () => {
   assert.equal(r.smsType, 'money_received');
   assert.equal(r.amount, 10000);
   assert.equal(r.balance, 25000);
-  assert.equal(r.phoneNumber, '+242066123456');
+  assert.equal(r.phoneNumber, '066123456');
   assert.equal(r.reference, 'ABC123');
 });
 
@@ -217,11 +226,22 @@ test('MtnSmsAnalyzer.analyze : enrichi correctement le result', async () => {
   assert.equal(r.smsType, 'money_received');
   assert.equal(r.amount, 10000);
   assert.equal(r.balance, 25000);
-  assert.equal(r.phoneNumber, '+242066123456');
+  assert.equal(r.phoneNumber, '066123456');
   assert.equal(r.reference, 'ABC123');
   assert.equal(r.currency, 'FCFA');
   assert.equal(r.analysisStatus, 'success');
   assert.ok(r.confidence > 0.5, `confidence trop basse: ${r.confidence}`);
+});
+
+test('AirtelSmsAnalyzer.analyze : sender 161 + CFA + numero local', async () => {
+  const sms = 'Ref:MP260627.1644.B72794 Vous avez recu 756.00 CFA du 053119025 .Reference: NA. Solde: 1210082.75 CFA.';
+  const r = await airtel.analyze('161', sms);
+  assert.equal(r.operator, 'AIRTEL');
+  assert.equal(r.smsType, 'money_received');
+  assert.equal(r.amount, 756);
+  assert.equal(r.balance, 1210082.75);
+  assert.equal(r.phoneNumber, '053119025');
+  assert.equal(r.currency, 'CFA');
 });
 
 // ---------- Edge cases ----------

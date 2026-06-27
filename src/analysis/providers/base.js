@@ -6,7 +6,7 @@
 
 const KW_AMOUNT = '(?:re(?:c|ç)u|cr[eé]dit[eé]?|envoy[eé]|d[eé]bit[eé]?|paiement|achat|pay[eé]|transfert|montant|retrait|d[eé]p[oô]t|cash[\\s\\-]?(?:in|out))';
 const KW_BALANCE = '(?:nouveau\\s+solde|solde\\s+actuel|solde|balance|disponible)';
-const CURRENCY = '(?:FCFA|XAF|XOF|F\\b)';
+const CURRENCY = '(?:FCFA|CFA|XAF|XOF|F\\b)';
 const AMOUNT_NUM = '(\\d[\\d\\s.,]*\\d|\\d)';
 
 const RE_AMOUNT_BEFORE = new RegExp(`${KW_AMOUNT}[^0-9]{0,50}${AMOUNT_NUM}\\s*${CURRENCY}`, 'i');
@@ -16,7 +16,7 @@ const RE_BAL_AFTER     = new RegExp(`${AMOUNT_NUM}\\s*${CURRENCY}[^0-9]{0,50}${K
 const RE_PHONE         = /(\+\d{9,15}|\b\d{9,12}\b)/g;
 const RE_REFERENCE     = /\b(?:r[eé]f(?:[eé]rence)?|reference)\s*[:.\-#]?\s*([A-Z0-9]{4,})/i;
 const RE_TRANSACTION   = /\b(?:transaction|trans|tx|tnx|id)\s*[:.\-#]?\s*([A-Z0-9]{4,})/i;
-const RE_CURRENCY      = /\b(FCFA|XAF|XOF)\b/i;
+const RE_CURRENCY      = /\b(FCFA|CFA|XAF|XOF)\b/i;
 
 export class BaseSmsAnalyzer {
   /** @type {string} */ name = 'base';
@@ -113,10 +113,23 @@ export class BaseSmsAnalyzer {
     const matches = [...text.matchAll(RE_PHONE)].map((m) => m[1]);
     // Priorite : numero avec '+'
     const withPlus = matches.find((m) => m.startsWith('+'));
-    if (withPlus) return withPlus;
+    if (withPlus) return this.normalizePhoneNumber(withPlus);
     // Sinon premier nombre 9-12 chiffres qui n'est pas le montant/solde
     const plain = matches.find((m) => !m.startsWith('+') && !exclude.has(m.replace(/^\+/, '')));
-    return plain ?? null;
+    return plain ? this.normalizePhoneNumber(plain) : null;
+  }
+
+  /**
+   * Affiche/stocker les numeros Congo sans indicatif pays.
+   * @param {string} raw
+   * @returns {string}
+   */
+  normalizePhoneNumber(raw) {
+    const s = String(raw ?? '').replace(/[\s-]/g, '');
+    if (s.startsWith('+242')) return s.slice(4);
+    if (s.startsWith('00242')) return s.slice(5);
+    if (s.startsWith('242') && s.length > 9) return s.slice(3);
+    return s;
   }
 
   /**
