@@ -199,6 +199,7 @@ test('MtnSmsAnalyzer.canAnalyze : MTN sender', () => {
 test('AirtelSmsAnalyzer.canAnalyze : Airtel sender', () => {
   assert.ok(airtel.canAnalyze('Airtel', 'Solde 25 000 FCFA'));
   assert.ok(airtel.canAnalyze('+242', 'Airtel Money: vous avez recu'));
+  assert.ok(airtel.canAnalyze('161', 'Vous avez recu 10 000 FCFA'));
   assert.equal(airtel.canAnalyze('MTN', 'MoMo: vous avez recu'), false);
 });
 

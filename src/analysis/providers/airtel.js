@@ -7,6 +7,7 @@ export class AirtelSmsAnalyzer extends BaseSmsAnalyzer {
   operator = 'AIRTEL';
 
   canAnalyze(sender, content) {
+    if ((sender ?? '').trim() === '161') return true;
     return RE_AIRTEL.test(`${sender ?? ''} ${content ?? ''}`);
   }
 
