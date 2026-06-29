@@ -18,7 +18,7 @@ const BASE_SELECT = `
 /**
  * Liste paginee + filtres. Renvoie items + total.
  *
- * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, q?:string}} f
+ * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, q?:string, sort?:'recent'|'ancient'}} f
  */
 export async function listSms(f) {
   const where = [];
@@ -47,9 +47,10 @@ export async function listSms(f) {
   `);
 
   params.push(f.limit, f.offset);
+  const orderBy = f.sort === 'ancient' ? 's.received_at ASC' : 's.received_at DESC';
   const itemsQ = await pool.query(
     `SELECT ${COLUMNS} ${BASE_SELECT} ${whereSql}
-     ORDER BY s.id DESC
+     ORDER BY ${orderBy}
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
   );
@@ -68,6 +69,14 @@ export async function listSms(f) {
       sommeDepots: Number(rawStats.deposit_sum),
     },
   };
+}
+
+export async function setSmsStatus(id, status) {
+  const { rows } = await pool.query(
+    `UPDATE sms SET status = $1 WHERE id = $2 RETURNING id, sender, content, received_at, smsc_ts, status`,
+    [status, id],
+  );
+  return rows[0] ?? null;
 }
 
 export async function getSmsById(id) {

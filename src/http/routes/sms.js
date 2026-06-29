@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdminToken } from '../middleware/admin.js';
 import {
-  listSms, getSmsById, deleteSmsById, resetForReanalyze,
+  listSms, getSmsById, deleteSmsById, resetForReanalyze, setSmsStatus,
 } from '../../repos/sms.repo.js';
 
 /**
@@ -19,6 +19,7 @@ export function smsRouter({ analysisService }) {
     smsType:  z.string().optional(),
     operator: z.string().optional(),
     q:        z.string().optional(),
+    sort:     z.enum(['recent', 'ancient']).optional(),
   });
 
   router.get('/', async (req, res, next) => {
@@ -52,6 +53,14 @@ export function smsRouter({ analysisService }) {
       const result = await analysisService.analyzeOne(req.params.id);
       const updated = await getSmsById(req.params.id);
       res.json({ result, sms: updated });
+    } catch (e) { next(e); }
+  });
+
+  router.post('/:id/copied', async (req, res, next) => {
+    try {
+      const updated = await setSmsStatus(req.params.id, 'treated');
+      if (!updated) return res.status(404).json({ error: 'SMS introuvable' });
+      res.json(updated);
     } catch (e) { next(e); }
   });
 
