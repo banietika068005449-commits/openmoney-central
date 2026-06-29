@@ -1,4 +1,5 @@
 import { pool } from '../db.js';
+import { PushNotificationService } from '../services/pushNotification.service.js';
 
 /**
  * Ingestion idempotente d'un lot de SMS pousse par un point de vente.
@@ -23,6 +24,8 @@ import { pool } from '../db.js';
  * }>}} payload
  * @returns {Promise<{ acceptes: string[], recu: number }>}
  */
+const pushService = new PushNotificationService();
+
 export async function ingest(payload) {
   const { pointDeVente, messages } = payload;
   if (messages.length === 0) return { acceptes: [], recu: 0 };
@@ -64,6 +67,23 @@ export async function ingest(payload) {
     }
 
     await client.query('COMMIT');
+
+    for (const message of messagesAInserer) {
+      const content = String(message.message || '').trim();
+      if (!content) continue;
+      try {
+        await pushService.sendToAll({
+          title: 'Nouvelle transaction',
+          body: content.slice(0, 140),
+          url: '/',
+          icon: '/logo.png',
+          badge: '/logo.png',
+        });
+      } catch (err) {
+        console.error('[push] envoi apres ingestion impossible', err.message);
+      }
+    }
+
     return { acceptes: messages.map((m) => m.uuid), recu: messages.length };
   } catch (e) {
     await client.query('ROLLBACK');

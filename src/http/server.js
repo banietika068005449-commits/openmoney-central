@@ -6,7 +6,7 @@ import ingestRouter from './routes/ingest.js';
 import { smsRouter } from './routes/sms.js';
 import aiRouter from './routes/ai.js';
 import accessTokensRouter from './routes/accessTokens.js';
-import pushRouter from './routes/push.js';
+import pushRouter from '../routes/push.js';
 
 /**
  * Cree l'app Express. analysisService est injecte pour la route /sms/:id/reanalyze.
