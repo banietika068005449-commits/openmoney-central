@@ -1,15 +1,15 @@
-import webpush from 'web-push';
+import webPush from 'web-push';
 import { pool } from '../db.js';
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:contact@mon-domaine.com';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:contact@openmoney.app';
 
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  webPush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 }
 
-function normalizePayload(payload) {
+function normalizePayload(payload = {}) {
   return {
     title: payload.title || 'OpenMoney',
     body: payload.body || '',
@@ -20,136 +20,89 @@ function normalizePayload(payload) {
   };
 }
 
-function buildNotificationPayload(payload) {
-  const normalized = normalizePayload(payload);
+function normalizeSubscription(row) {
+  if (!row) return null;
   return {
-    title: normalized.title,
-    body: normalized.body,
-    icon: normalized.icon,
-    badge: normalized.badge,
-    data: {
-      ...normalized.data,
-      url: normalized.url,
+    endpoint: row.endpoint,
+    keys: {
+      p256dh: row.p256dh,
+      auth: row.auth,
     },
   };
 }
 
-export function validatePushSubscriptionPayload(body) {
-  if (!body || typeof body !== 'object') {
-    throw new Error('Payload invalide');
-  }
-  if (!body.endpoint || typeof body.endpoint !== 'string') {
-    throw new Error('endpoint obligatoire');
-  }
-  if (!body.keys || typeof body.keys !== 'object') {
-    throw new Error('keys obligatoire');
-  }
-  if (!body.keys.p256dh || typeof body.keys.p256dh !== 'string') {
-    throw new Error('keys.p256dh obligatoire');
-  }
-  if (!body.keys.auth || typeof body.keys.auth !== 'string') {
-    throw new Error('keys.auth obligatoire');
-  }
-  return body;
-}
-
-export function validatePushSendPayload(body) {
-  if (!body || typeof body !== 'object') {
-    throw new Error('Payload invalide');
-  }
-  if (!body.title || typeof body.title !== 'string') {
-    throw new Error('title obligatoire');
-  }
-  if (!body.body || typeof body.body !== 'string') {
-    throw new Error('body obligatoire');
-  }
-  return {
-    title: body.title,
-    body: body.body,
-    url: typeof body.url === 'string' ? body.url : '/',
-    icon: typeof body.icon === 'string' ? body.icon : '/logo.png',
-    badge: typeof body.badge === 'string' ? body.badge : '/logo.png',
-    data: typeof body.data === 'object' && body.data ? body.data : {},
-  };
-}
-
-export async function savePushSubscription(subscription, extra = {}) {
-  const payload = validatePushSubscriptionPayload(subscription);
-  const endpoint = payload.endpoint;
-  const values = [
-    endpoint,
-    payload.keys.p256dh,
-    payload.keys.auth,
-    extra.userAgent || null,
-    extra.deviceName || null,
-    extra.userId || null,
-    true,
-  ];
-
-  await pool.query(
-    `INSERT INTO push_subscription (
-      endpoint, p256dh, auth, user_agent, device_name, user_id, is_active, created_at, updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-    ON CONFLICT (endpoint) DO UPDATE SET
-      p256dh = EXCLUDED.p256dh,
-      auth = EXCLUDED.auth,
-      user_agent = COALESCE(EXCLUDED.user_agent, push_subscription.user_agent),
-      device_name = COALESCE(EXCLUDED.device_name, push_subscription.device_name),
-      user_id = COALESCE(EXCLUDED.user_id, push_subscription.user_id),
-      is_active = true,
-      updated_at = NOW()`,
-    values,
-  );
-}
-
-export async function deactivatePushSubscription(endpoint) {
-  if (!endpoint) return;
-  await pool.query(`UPDATE push_subscription SET is_active = false, updated_at = NOW() WHERE endpoint = $1`, [endpoint]);
-}
-
-export async function listActivePushSubscriptions(userId) {
-  const { rows } = await pool.query(
-    `SELECT endpoint, p256dh, auth, user_agent, device_name FROM push_subscription
-     WHERE is_active = true AND ($1::bigint IS NULL OR user_id = $1)`,
-    [userId ?? null],
-  );
-  return rows;
-}
-
-export async function sendToSubscription(subscription, payload) {
-  const notification = buildNotificationPayload(payload);
-  const options = {
-    TTL: 60,
-    vapidDetails: webpush.getVapidDetails ? webpush.getVapidDetails() : undefined,
-  };
-  await webpush.sendNotification(
-    {
-      endpoint: subscription.endpoint,
-      keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-    },
-    JSON.stringify(notification),
-    options,
-  );
-}
-
-export async function sendToUser(userId, payload) {
-  const subscriptions = await listActivePushSubscriptions(userId);
-  const notification = buildNotificationPayload(payload);
-  const tasks = subscriptions.map((subscription) => sendToSubscription(subscription, notification).catch(async (err) => {
-    if (err?.statusCode === 404 || err?.statusCode === 410) {
-      await deactivatePushSubscription(subscription.endpoint);
+export class PushNotificationService {
+  async subscribeSubscription(subscription, meta = {}) {
+    const endpoint = subscription?.endpoint;
+    if (!endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+      throw new Error('Abonnement push invalide');
     }
-  }));
-  await Promise.allSettled(tasks);
-}
 
-export async function sendToAll(payload) {
-  const subscriptions = await listActivePushSubscriptions();
-  const notification = buildNotificationPayload(payload);
-  const tasks = subscriptions.map((subscription) => sendToSubscription(subscription, notification).catch(async (err) => {
-    if (err?.statusCode === 404 || err?.statusCode === 410) {
-      await deactivatePushSubscription(subscription.endpoint);
+    const { rows } = await pool.query(
+      `INSERT INTO push_subscription (
+        endpoint, p256dh, auth, user_agent, device_name, is_active, created_at, updated_at, last_used_at
+      ) VALUES ($1,$2,$3,$4,$5,true,NOW(),NOW(),NOW())
+      ON CONFLICT (endpoint) DO UPDATE SET
+        p256dh = EXCLUDED.p256dh,
+        auth = EXCLUDED.auth,
+        user_agent = COALESCE(EXCLUDED.user_agent, push_subscription.user_agent),
+        device_name = COALESCE(EXCLUDED.device_name, push_subscription.device_name),
+        is_active = true,
+        updated_at = NOW(),
+        last_used_at = NOW()
+      RETURNING id, endpoint, p256dh, auth, user_agent, device_name, is_active, created_at, updated_at, last_used_at`,
+      [endpoint, subscription.keys.p256dh, subscription.keys.auth, meta.userAgent || null, meta.deviceName || null],
+    );
+
+    return rows[0];
+  }
+
+  async unsubscribeSubscription(endpoint) {
+    const { rowCount } = await pool.query(
+      `UPDATE push_subscription SET is_active = false, updated_at = NOW() WHERE endpoint = $1`,
+      [endpoint],
+    );
+    return rowCount > 0;
+  }
+
+  async sendToSubscription(subscription, payload = {}) {
+    const normalized = normalizePayload(payload);
+    try {
+      await webPush.sendNotification(subscription, JSON.stringify(normalized));
+      await pool.query(`UPDATE push_subscription SET last_used_at = NOW() WHERE endpoint = $1`, [subscription.endpoint]);
+      return { ok: true };
+    } catch (err) {
+      if (err.statusCode === 404 || err.statusCode === 410) {
+        await this.removeInvalidSubscription(subscription.endpoint);
+      }
+      return { ok: false, error: err.message, statusCode: err.statusCode };
     }
-  }));
-  await Promise.allSettled(tasks);
+  }
+
+  async sendToUser(userId, payload = {}) {
+    const { rows } = await pool.query(
+      `SELECT endpoint, p256dh, auth FROM push_subscription WHERE is_active = true AND user_id = $1`,
+      [userId],
+    );
+    const results = [];
+    for (const row of rows) {
+      results.push(await this.sendToSubscription(normalizeSubscription(row), payload));
+    }
+    return results;
+  }
+
+  async sendToAll(payload = {}) {
+    const { rows } = await pool.query(
+      `SELECT endpoint, p256dh, auth FROM push_subscription WHERE is_active = true`,
+    );
+    const results = [];
+    for (const row of rows) {
+      results.push(await this.sendToSubscription(normalizeSubscription(row), payload));
+    }
+    return results;
+  }
+
+  async removeInvalidSubscription(endpoint) {
+    await pool.query(`UPDATE push_subscription SET is_active = false, updated_at = NOW() WHERE endpoint = $1`, [endpoint]);
+  }
 }
