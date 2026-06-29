@@ -132,3 +132,20 @@ CREATE TABLE IF NOT EXISTS access_token (
 );
 
 CREATE INDEX IF NOT EXISTS idx_access_token_active ON access_token (is_active);
+
+CREATE TABLE IF NOT EXISTS push_subscription (
+    id              BIGSERIAL PRIMARY KEY,
+    user_id         BIGINT,
+    endpoint        TEXT NOT NULL UNIQUE,
+    p256dh          TEXT NOT NULL,
+    auth            TEXT NOT NULL,
+    user_agent      TEXT,
+    device_name     TEXT,
+    is_active       BOOLEAN NOT NULL DEFAULT true,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscription_active ON push_subscription (is_active);
+CREATE INDEX IF NOT EXISTS idx_push_subscription_user ON push_subscription (user_id);

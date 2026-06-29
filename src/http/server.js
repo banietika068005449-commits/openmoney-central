@@ -6,6 +6,7 @@ import ingestRouter from './routes/ingest.js';
 import { smsRouter } from './routes/sms.js';
 import aiRouter from './routes/ai.js';
 import accessTokensRouter from './routes/accessTokens.js';
+import pushRouter from './routes/push.js';
 
 /**
  * Cree l'app Express. analysisService est injecte pour la route /sms/:id/reanalyze.
@@ -37,6 +38,7 @@ export function createApp({ analysisService } = {}) {
   }
   app.use('/ai', aiRouter);
   app.use('/access-tokens', accessTokensRouter);
+  app.use('/api/push', pushRouter);
 
   app.use((err, _req, res, _next) => {
     console.error('[http] erreur :', err.message);
