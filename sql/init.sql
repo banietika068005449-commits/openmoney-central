@@ -1,3 +1,7 @@
+DO $$ BEGIN
+  CREATE TYPE admin_processing_status_enum AS ENUM ('ANALYSIS', 'UNLOCKED', 'TREATED', 'PROBLEM');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
 CREATE TABLE IF NOT EXISTS sms (
   id          BIGSERIAL PRIMARY KEY,
   sender      TEXT        NOT NULL,
@@ -6,8 +10,11 @@ CREATE TABLE IF NOT EXISTS sms (
   smsc_ts     TIMESTAMPTZ,
   modem_index INTEGER,
   raw         TEXT,
-  status      TEXT        NOT NULL DEFAULT 'received'
+  status      TEXT        NOT NULL DEFAULT 'received',
+  admin_processing_status admin_processing_status_enum NOT NULL DEFAULT 'ANALYSIS'
 );
+
+ALTER TABLE sms ADD COLUMN IF NOT EXISTS admin_processing_status admin_processing_status_enum NOT NULL DEFAULT 'ANALYSIS';
 
 CREATE INDEX IF NOT EXISTS idx_sms_received_at ON sms (received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sms_sender      ON sms (sender);

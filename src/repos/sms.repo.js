@@ -4,6 +4,7 @@ import { pool } from '../db.js';
 // le frontend (cf. frontend central/src/pages/SmsPage.jsx).
 const COLUMNS = `
   s.id, s.sender, s.content, s.received_at, s.smsc_ts, s.status,
+  s.admin_processing_status,
   s.point_de_vente,
   a.operator AS analysis_operator, a.amount, a.currency,
   a.phone_number, a.reference, a.transaction_id,
@@ -80,8 +81,16 @@ export async function listSms(f) {
 
 export async function setSmsStatus(id, status) {
   const { rows } = await pool.query(
-    `UPDATE sms SET status = $1 WHERE id = $2 RETURNING id, sender, content, received_at, smsc_ts, status`,
+    `UPDATE sms SET status = $1 WHERE id = $2 RETURNING id, sender, content, received_at, smsc_ts, status, admin_processing_status`,
     [status, id],
+  );
+  return rows[0] ?? null;
+}
+
+export async function setSmsAdminProcessingStatus(id, adminProcessingStatus) {
+  const { rows } = await pool.query(
+    `UPDATE sms SET admin_processing_status = $1 WHERE id = $2 RETURNING id, sender, content, received_at, smsc_ts, status, admin_processing_status`,
+    [adminProcessingStatus, id],
   );
   return rows[0] ?? null;
 }
