@@ -13,7 +13,7 @@ services:
     runtime: node
     plan: free              # Free tier : dort apres 15 min d'inactivite. Upgrade en 'starter' (7$/mois) avant prod serieuse.
     region: frankfurt       # cohabite avec la Postgres Neon en eu-central-1
-    repo: https://github.com/ambitechdynamics-debug/openmoney-central
+    repo: https://github.com/BryServices/openmoney-central
     branch: main
     rootDir: .
     buildCommand: npm ci
