@@ -20,6 +20,7 @@ export function smsRouter({ analysisService }) {
     operator: z.string().optional(),
     q:        z.string().optional(),
     sort:     z.enum(['recent', 'ancient']).optional(),
+    period:   z.enum(['all', 'days', 'week']).optional().default('all'),
   });
 
   router.get('/', async (req, res, next) => {
