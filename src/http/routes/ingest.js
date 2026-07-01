@@ -43,7 +43,11 @@ const analysisQuerySchema = z.object({
 
 function buildAnalysisWhere(filters) {
   const where = [
-    "s.status = 'analyzed'",
+    // 'treated' = depot analyse dont le numero a ete copie cote dashboard.
+    // C'est un sous-etat de 'analyzed' : il doit rester visible dans
+    // l'historique et compte dans la somme des depots. Sans ce IN, copier un
+    // numero faisait disparaitre la transaction et baisser le total.
+    "s.status IN ('analyzed', 'treated')",
     "a.analysis_status = 'success'",
   ];
   const params = [];

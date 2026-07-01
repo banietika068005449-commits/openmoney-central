@@ -44,13 +44,17 @@ export async function listSms(f) {
   // Ces indicateurs alimentent le dashboard admin. Ils portent toujours sur
   // l'ensemble des SMS et ne doivent donc reprendre ni les filtres ni la
   // pagination de la liste ci-dessous.
+  // 'treated' est un sous-etat de 'analyzed' (depot analyse dont le numero a
+  // ete copie). Il doit donc rester comptabilise dans le nombre d'analyses ET
+  // dans la somme des depots : copier un numero ne doit jamais faire baisser le
+  // montant total ni le compteur d'analyses.
   const statsQ = await pool.query(`
     SELECT
       COUNT(*)::int AS total_sms,
-      (COUNT(*) FILTER (WHERE s.status = 'analyzed'))::int AS analyzed,
+      (COUNT(*) FILTER (WHERE s.status IN ('analyzed', 'treated')))::int AS analyzed,
       (COUNT(*) FILTER (WHERE s.status = 'failed'))::int AS failed,
       (COUNT(*) FILTER (WHERE s.status = 'ignored'))::int AS ignored,
-      COALESCE(SUM(a.amount) FILTER (WHERE s.status = 'analyzed'), 0) AS deposit_sum
+      COALESCE(SUM(a.amount) FILTER (WHERE s.status IN ('analyzed', 'treated')), 0) AS deposit_sum
     ${BASE_SELECT}
   `);
 
