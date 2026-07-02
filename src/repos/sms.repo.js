@@ -19,7 +19,7 @@ const BASE_SELECT = `
 /**
  * Liste paginee + filtres. Renvoie items + total.
  *
- * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week'}} f
+ * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
  */
 export async function listSms(f) {
   const where = [];
@@ -33,6 +33,24 @@ export async function listSms(f) {
   } else if (f.period === 'week') {
     params.push(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
     where.push(`s.received_at >= $${params.length}`);
+  }
+  if (f.date && Number.isInteger(f.hour)) {
+    const start = new Date(`${f.date}T${String(f.hour).padStart(2, '0')}:00:00+01:00`);
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    params.push(start);
+    where.push(`s.received_at >= $${params.length}`);
+    params.push(end);
+    where.push(`s.received_at < $${params.length}`);
+  } else if (f.date) {
+    const start = new Date(`${f.date}T00:00:00+01:00`);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    params.push(start);
+    where.push(`s.received_at >= $${params.length}`);
+    params.push(end);
+    where.push(`s.received_at < $${params.length}`);
+  } else if (Number.isInteger(f.hour)) {
+    params.push(f.hour);
+    where.push(`EXTRACT(HOUR FROM s.received_at AT TIME ZONE 'Africa/Brazzaville') = $${params.length}`);
   }
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
 

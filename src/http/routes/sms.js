@@ -21,6 +21,8 @@ export function smsRouter({ analysisService }) {
     q:        z.string().optional(),
     sort:     z.enum(['recent', 'ancient']).optional(),
     period:   z.enum(['all', 'days', 'week']).optional().default('all'),
+    date:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    hour:     z.coerce.number().int().min(0).max(23).optional(),
   });
 
   router.get('/', async (req, res, next) => {
