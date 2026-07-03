@@ -140,6 +140,21 @@ CREATE TABLE IF NOT EXISTS access_token (
 
 CREATE INDEX IF NOT EXISTS idx_access_token_active ON access_token (is_active);
 
+CREATE TABLE IF NOT EXISTS admin_session (
+    id                 BIGSERIAL    PRIMARY KEY,
+    token_hash         CHAR(64)     NOT NULL UNIQUE,
+    admin_type         VARCHAR(32)  NOT NULL,
+    access_token_id    BIGINT,
+    access_token_label VARCHAR(120),
+    created_at         TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    last_activity_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    expires_at         TIMESTAMPTZ  NOT NULL,
+    revoked_at         TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_session_token_hash ON admin_session (token_hash);
+CREATE INDEX IF NOT EXISTS idx_admin_session_expires_at ON admin_session (expires_at);
+
 CREATE TABLE IF NOT EXISTS push_subscription (
     id            BIGSERIAL PRIMARY KEY,
     user_id       TEXT,

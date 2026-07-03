@@ -7,6 +7,7 @@ import { smsRouter } from './routes/sms.js';
 import aiRouter from './routes/ai.js';
 import accessTokensRouter from './routes/accessTokens.js';
 import transactionsRouter from './routes/transactions.js';
+import authRouter from './routes/auth.js';
 import pushRouter from '../routes/push.js';
 
 /**
@@ -30,6 +31,7 @@ export function createApp({ analysisService } = {}) {
   app.use(rateLimit({ windowMs: 60_000, max: 300 }));
 
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+  app.use('/auth', authRouter);
   app.use('/api', ingestRouter);
 
   // Dashboard (auth ADMIN_TOKEN, monte a la racine pour matcher le frontend qui

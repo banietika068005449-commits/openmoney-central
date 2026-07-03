@@ -32,3 +32,15 @@ services:
         sync: false         # secret -> defini manuellement dans le dashboard
       - key: INGEST_TOKEN
         sync: false         # secret -> defini manuellement dans le dashboard
+      - key: ADMIN_TOKEN
+        sync: false         # secret -> jeton bootstrap dashboard
+      - key: ADMIN_SESSION_TTL_HOURS
+        value: 24
+      - key: RECAPTCHA_SITE_KEY
+        sync: false         # secret -> cle site Google reCAPTCHA v2
+      - key: RECAPTCHA_SECRET_KEY
+        sync: false         # secret -> cle secrete Google reCAPTCHA v2
+      - key: RECAPTCHA_TIMEOUT_MS
+        value: 4000
+      - key: LOGIN_RATE_LIMIT_MAX
+        value: 10
