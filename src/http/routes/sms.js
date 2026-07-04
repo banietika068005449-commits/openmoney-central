@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdminToken } from '../middleware/admin.js';
 import {
-  listSms, getSmsById, deleteSmsById, resetForReanalyze, setSmsStatus,
+  listSms, getSmsById, deleteSmsById, resetForReanalyze, setSmsStatus, setSmsImei, setTransactionNote,
 } from '../../repos/sms.repo.js';
 
 /**
@@ -19,6 +19,8 @@ export function smsRouter({ analysisService }) {
     smsType:  z.string().optional(),
     operator: z.string().optional(),
     phone:    z.string().trim().optional(),
+    transactionId: z.string().trim().optional(),
+    amountRule: z.coerce.number().int().positive().optional(),
     q:        z.string().optional(),
     sort:     z.enum(['recent', 'ancient']).optional(),
     period:   z.enum(['all', 'days', 'week']).optional().default('all'),
@@ -64,6 +66,31 @@ export function smsRouter({ analysisService }) {
     try {
       const updated = await setSmsStatus(req.params.id, 'treated');
       if (!updated) return res.status(404).json({ error: 'SMS introuvable' });
+      res.json(updated);
+    } catch (e) { next(e); }
+  });
+
+  router.patch('/:id/imei', async (req, res, next) => {
+    try {
+      const body = z.object({
+        imei: z.string().trim().regex(/^\d{0,32}$/),
+      }).parse(req.body);
+      const updated = await setSmsImei(req.params.id, body.imei);
+      if (!updated) return res.status(404).json({ error: 'SMS introuvable' });
+      res.json(updated);
+    } catch (e) { next(e); }
+  });
+
+  router.patch('/transaction-note/:transactionId', async (req, res, next) => {
+    try {
+      const params = z.object({
+        transactionId: z.string().trim().min(1).max(160),
+      }).parse(req.params);
+      const body = z.object({
+        note: z.string().max(5000).default(''),
+      }).parse(req.body);
+      const updated = await setTransactionNote(params.transactionId, body.note);
+      if (!updated) return res.status(404).json({ error: 'Transaction introuvable' });
       res.json(updated);
     } catch (e) { next(e); }
   });

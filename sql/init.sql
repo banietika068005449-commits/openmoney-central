@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS sms_analysis (
   balance         NUMERIC(14,2),
   currency        TEXT         DEFAULT 'FCFA',
   phone_number    TEXT,
+  imei            TEXT,
   reference       TEXT,
   transaction_id  TEXT,
   confidence      NUMERIC(5,2) NOT NULL DEFAULT 0,
@@ -61,6 +62,24 @@ CREATE TABLE IF NOT EXISTS sms_analysis (
 
 CREATE INDEX IF NOT EXISTS idx_sms_analysis_operator ON sms_analysis (operator);
 CREATE INDEX IF NOT EXISTS idx_sms_analysis_created  ON sms_analysis (created_at DESC);
+ALTER TABLE sms_analysis ADD COLUMN IF NOT EXISTS imei TEXT;
+CREATE INDEX IF NOT EXISTS idx_sms_analysis_phone_number ON sms_analysis (phone_number);
+CREATE INDEX IF NOT EXISTS idx_sms_analysis_imei ON sms_analysis (imei);
+
+-- IMEI connu par client. Permet d'afficher l'IMEI sur les prochaines
+-- transactions du meme numero meme si l'analyse du SMS ne le porte pas.
+CREATE TABLE IF NOT EXISTS client_imei (
+  phone_number TEXT PRIMARY KEY,
+  imei         TEXT NOT NULL,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Notes administratives attachees au numero de transaction.
+CREATE TABLE IF NOT EXISTS transaction_note (
+  transaction_id TEXT PRIMARY KEY,
+  note           TEXT NOT NULL DEFAULT '',
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- Suppression des colonnes inutiles cote metier :
 --   - provider, confidence : debug technique, non consomme par l'UI

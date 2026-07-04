@@ -7,19 +7,22 @@ const COLUMNS = `
   s.admin_processing_status,
   s.point_de_vente,
   a.operator AS analysis_operator, a.amount, a.currency,
-  a.phone_number, a.reference, a.transaction_id,
+  a.phone_number, COALESCE(a.imei, ci.imei) AS imei, a.reference, a.transaction_id,
+  tn.note AS transaction_note,
   a.extracted_data, a.analysis_status
 `;
 
 const BASE_SELECT = `
   FROM sms s
   LEFT JOIN sms_analysis a ON a.sms_id = s.id
+  LEFT JOIN client_imei ci ON ci.phone_number = a.phone_number
+  LEFT JOIN transaction_note tn ON tn.transaction_id = a.transaction_id
 `;
 
 /**
  * Liste paginee + filtres. Renvoie items + total.
  *
- * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, phone?:string, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
+ * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, phone?:string, transactionId?:string, amountRule?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
  */
 export async function listSms(f) {
   const where = [];
@@ -27,6 +30,8 @@ export async function listSms(f) {
   if (f.status)   { params.push(f.status);            where.push(`s.status = $${params.length}`); }
   if (f.operator) { params.push(f.operator);          where.push(`a.operator = $${params.length}`); }
   if (f.phone)    { params.push(`%${f.phone}%`);      where.push(`a.phone_number ILIKE $${params.length}`); }
+  if (f.transactionId) { params.push(f.transactionId); where.push(`a.transaction_id = $${params.length}`); }
+  if (f.amountRule) { params.push(f.amountRule);      where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
   if (f.q)        { params.push(`%${f.q}%`);          where.push(`(s.sender ILIKE $${params.length} OR s.content ILIKE $${params.length})`); }
   if (f.period === 'days') {
     params.push(new Date(Date.now() - 24 * 60 * 60 * 1000));
@@ -114,6 +119,66 @@ export async function setSmsAdminProcessingStatus(id, adminProcessingStatus) {
   const { rows } = await pool.query(
     `UPDATE sms SET admin_processing_status = $1 WHERE id = $2 RETURNING id, sender, content, received_at, smsc_ts, status, admin_processing_status`,
     [adminProcessingStatus, id],
+  );
+  return rows[0] ?? null;
+}
+
+export async function setSmsImei(id, imei) {
+  const normalizedImei = String(imei || '').replace(/\D/g, '').slice(0, 32);
+  const { rows } = await pool.query(
+    `SELECT phone_number FROM sms_analysis WHERE sms_id = $1`,
+    [id],
+  );
+  const phoneNumber = rows[0]?.phone_number || null;
+
+  if (!normalizedImei) {
+    if (phoneNumber) {
+      await pool.query(`DELETE FROM client_imei WHERE phone_number = $1`, [phoneNumber]);
+      await pool.query(`UPDATE sms_analysis SET imei = NULL WHERE phone_number = $1`, [phoneNumber]);
+    } else {
+      await pool.query(`UPDATE sms_analysis SET imei = NULL WHERE sms_id = $1`, [id]);
+    }
+  } else if (phoneNumber) {
+    await pool.query(
+      `INSERT INTO client_imei (phone_number, imei, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (phone_number) DO UPDATE SET
+         imei = EXCLUDED.imei,
+         updated_at = NOW()`,
+      [phoneNumber, normalizedImei],
+    );
+    await pool.query(
+      `UPDATE sms_analysis SET imei = $1 WHERE phone_number = $2`,
+      [normalizedImei, phoneNumber],
+    );
+  } else {
+    await pool.query(
+      `UPDATE sms_analysis SET imei = $1 WHERE sms_id = $2`,
+      [normalizedImei, id],
+    );
+  }
+
+  return getSmsById(id);
+}
+
+export async function setTransactionNote(transactionId, note) {
+  const normalizedTransactionId = String(transactionId || '').trim();
+  const normalizedNote = String(note || '').trim();
+  if (!normalizedTransactionId) return null;
+
+  if (!normalizedNote) {
+    await pool.query(`DELETE FROM transaction_note WHERE transaction_id = $1`, [normalizedTransactionId]);
+    return { transaction_id: normalizedTransactionId, transaction_note: '' };
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO transaction_note (transaction_id, note, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (transaction_id) DO UPDATE SET
+       note = EXCLUDED.note,
+       updated_at = NOW()
+     RETURNING transaction_id, note AS transaction_note`,
+    [normalizedTransactionId, normalizedNote],
   );
   return rows[0] ?? null;
 }

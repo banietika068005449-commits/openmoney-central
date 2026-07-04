@@ -17,7 +17,7 @@ services:
     branch: main
     rootDir: .
     buildCommand: npm ci
-    startCommand: npm start
+    startCommand: npm run migrate && npm start
     healthCheckPath: /health
     autoDeploy: true
     envVars:
