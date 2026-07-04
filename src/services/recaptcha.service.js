@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { getRecaptchaSettings } from '../repos/setting.repo.js';
 
 const DEFAULT_KEY_FILE = resolve(process.cwd(), '..', 'recaptchat google KEY', 'KEY.txt');
 
@@ -23,9 +24,10 @@ function parseKeyFile(content) {
   };
 }
 
-export function loadRecaptchaConfig() {
+export async function loadRecaptchaConfig() {
   let fileConfig = { siteKey: '', secretKey: '' };
   const keyFile = process.env.RECAPTCHA_KEY_FILE || DEFAULT_KEY_FILE;
+  const dbConfig = await getRecaptchaSettings();
 
   try {
     fileConfig = parseKeyFile(readFileSync(keyFile, 'utf8'));
@@ -36,8 +38,9 @@ export function loadRecaptchaConfig() {
   }
 
   return {
-    siteKey: process.env.RECAPTCHA_SITE_KEY || fileConfig.siteKey,
-    secretKey: process.env.RECAPTCHA_SECRET_KEY || fileConfig.secretKey,
+    enabled: dbConfig.enabled ?? true,
+    siteKey: dbConfig.siteKey || process.env.RECAPTCHA_SITE_KEY || fileConfig.siteKey,
+    secretKey: dbConfig.secretKey || process.env.RECAPTCHA_SECRET_KEY || fileConfig.secretKey,
     timeoutMs: Number(process.env.RECAPTCHA_TIMEOUT_MS || 4000),
   };
 }
