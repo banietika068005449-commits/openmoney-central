@@ -9,6 +9,7 @@ const COLUMNS = `
   a.operator AS analysis_operator, a.amount, a.currency,
   a.phone_number, COALESCE(a.imei, ci.imei) AS imei, a.reference, a.transaction_id,
   tn.note AS transaction_note,
+  sn.note AS sms_note,
   tb.amount_rule_id AS transaction_badge_rule_id,
   a.extracted_data, a.analysis_status
 `;
@@ -18,13 +19,21 @@ const BASE_SELECT = `
   LEFT JOIN sms_analysis a ON a.sms_id = s.id
   LEFT JOIN client_imei ci ON ci.phone_number = a.phone_number
   LEFT JOIN transaction_note tn ON tn.transaction_id = a.transaction_id
+  LEFT JOIN sms_note sn ON sn.sms_id = s.id
   LEFT JOIN transaction_badge tb ON tb.transaction_id = a.transaction_id
 `;
 
-let transactionBadgeTableReady = false;
+let smsAuxTablesReady = false;
 
-async function ensureTransactionBadgeTable() {
-  if (transactionBadgeTableReady) return;
+async function ensureSmsAuxTables() {
+  if (smsAuxTablesReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sms_note (
+      sms_id     BIGINT PRIMARY KEY REFERENCES sms(id) ON DELETE CASCADE,
+      note       TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS transaction_badge (
       transaction_id TEXT PRIMARY KEY,
@@ -32,7 +41,7 @@ async function ensureTransactionBadgeTable() {
       updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
-  transactionBadgeTableReady = true;
+  smsAuxTablesReady = true;
 }
 
 /**
@@ -41,7 +50,7 @@ async function ensureTransactionBadgeTable() {
  * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, phone?:string, transactionId?:string, amountRule?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
  */
 export async function listSms(f) {
-  await ensureTransactionBadgeTable();
+  await ensureSmsAuxTables();
   const where = [];
   const params = [];
   if (f.status)   { params.push(f.status);            where.push(`s.status = $${params.length}`); }
@@ -201,7 +210,7 @@ export async function setTransactionNote(transactionId, note) {
 }
 
 export async function setTransactionBadge(transactionId, amountRuleId) {
-  await ensureTransactionBadgeTable();
+  await ensureSmsAuxTables();
   const normalizedTransactionId = String(transactionId || '').trim();
   const normalizedAmountRuleId = String(amountRuleId || '').trim();
   if (!normalizedTransactionId) return null;
@@ -224,11 +233,32 @@ export async function setTransactionBadge(transactionId, amountRuleId) {
 }
 
 export async function getSmsById(id) {
+  await ensureSmsAuxTables();
   const { rows } = await pool.query(
     `SELECT ${COLUMNS} ${BASE_SELECT} WHERE s.id = $1`,
     [id],
   );
   return rows[0] ?? null;
+}
+
+export async function setSmsNote(id, note) {
+  await ensureSmsAuxTables();
+  const normalizedNote = String(note || '').trim();
+
+  if (!normalizedNote) {
+    await pool.query(`DELETE FROM sms_note WHERE sms_id = $1`, [id]);
+    return getSmsById(id);
+  }
+
+  await pool.query(
+    `INSERT INTO sms_note (sms_id, note, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (sms_id) DO UPDATE SET
+       note = EXCLUDED.note,
+       updated_at = NOW()`,
+    [id, normalizedNote],
+  );
+  return getSmsById(id);
 }
 
 export async function deleteSmsById(id) {

@@ -81,6 +81,13 @@ CREATE TABLE IF NOT EXISTS transaction_note (
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Notes administratives attachees a une ligne SMS precise.
+CREATE TABLE IF NOT EXISTS sms_note (
+  sms_id     BIGINT PRIMARY KEY REFERENCES sms(id) ON DELETE CASCADE,
+  note       TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Badge manuel attache au numero de transaction. La valeur reference une
 -- regle du module Amelioration (amountRules[].id).
 CREATE TABLE IF NOT EXISTS transaction_badge (

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdminToken } from '../middleware/admin.js';
 import {
-  listSms, getSmsById, deleteSmsById, resetForReanalyze, setSmsStatus, setSmsImei, setTransactionNote, setTransactionBadge,
+  listSms, getSmsById, deleteSmsById, resetForReanalyze, setSmsStatus, setSmsImei, setSmsNote, setTransactionNote, setTransactionBadge,
 } from '../../repos/sms.repo.js';
 
 /**
@@ -76,6 +76,17 @@ export function smsRouter({ analysisService }) {
         imei: z.string().trim().regex(/^\d{0,32}$/),
       }).parse(req.body);
       const updated = await setSmsImei(req.params.id, body.imei);
+      if (!updated) return res.status(404).json({ error: 'SMS introuvable' });
+      res.json(updated);
+    } catch (e) { next(e); }
+  });
+
+  router.patch('/:id/note', async (req, res, next) => {
+    try {
+      const body = z.object({
+        note: z.string().max(5000).default(''),
+      }).parse(req.body);
+      const updated = await setSmsNote(req.params.id, body.note);
       if (!updated) return res.status(404).json({ error: 'SMS introuvable' });
       res.json(updated);
     } catch (e) { next(e); }
