@@ -9,6 +9,7 @@ const COLUMNS = `
   a.operator AS analysis_operator, a.amount, a.currency,
   a.phone_number, COALESCE(a.imei, ci.imei) AS imei, a.reference, a.transaction_id,
   tn.note AS transaction_note,
+  tb.amount_rule_id AS transaction_badge_rule_id,
   a.extracted_data, a.analysis_status
 `;
 
@@ -17,6 +18,7 @@ const BASE_SELECT = `
   LEFT JOIN sms_analysis a ON a.sms_id = s.id
   LEFT JOIN client_imei ci ON ci.phone_number = a.phone_number
   LEFT JOIN transaction_note tn ON tn.transaction_id = a.transaction_id
+  LEFT JOIN transaction_badge tb ON tb.transaction_id = a.transaction_id
 `;
 
 /**
@@ -179,6 +181,28 @@ export async function setTransactionNote(transactionId, note) {
        updated_at = NOW()
      RETURNING transaction_id, note AS transaction_note`,
     [normalizedTransactionId, normalizedNote],
+  );
+  return rows[0] ?? null;
+}
+
+export async function setTransactionBadge(transactionId, amountRuleId) {
+  const normalizedTransactionId = String(transactionId || '').trim();
+  const normalizedAmountRuleId = String(amountRuleId || '').trim();
+  if (!normalizedTransactionId) return null;
+
+  if (!normalizedAmountRuleId) {
+    await pool.query(`DELETE FROM transaction_badge WHERE transaction_id = $1`, [normalizedTransactionId]);
+    return { transaction_id: normalizedTransactionId, transaction_badge_rule_id: '' };
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO transaction_badge (transaction_id, amount_rule_id, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (transaction_id) DO UPDATE SET
+       amount_rule_id = EXCLUDED.amount_rule_id,
+       updated_at = NOW()
+     RETURNING transaction_id, amount_rule_id AS transaction_badge_rule_id`,
+    [normalizedTransactionId, normalizedAmountRuleId],
   );
   return rows[0] ?? null;
 }

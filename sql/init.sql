@@ -81,6 +81,14 @@ CREATE TABLE IF NOT EXISTS transaction_note (
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Badge manuel attache au numero de transaction. La valeur reference une
+-- regle du module Amelioration (amountRules[].id).
+CREATE TABLE IF NOT EXISTS transaction_badge (
+  transaction_id TEXT PRIMARY KEY,
+  amount_rule_id TEXT NOT NULL DEFAULT '',
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Suppression des colonnes inutiles cote metier :
 --   - provider, confidence : debug technique, non consomme par l'UI
 --   - sms_type : OpenMoney ne traite que les depots, le reste est ignored
