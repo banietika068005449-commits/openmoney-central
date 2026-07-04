@@ -21,12 +21,27 @@ const BASE_SELECT = `
   LEFT JOIN transaction_badge tb ON tb.transaction_id = a.transaction_id
 `;
 
+let transactionBadgeTableReady = false;
+
+async function ensureTransactionBadgeTable() {
+  if (transactionBadgeTableReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS transaction_badge (
+      transaction_id TEXT PRIMARY KEY,
+      amount_rule_id TEXT NOT NULL DEFAULT '',
+      updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  transactionBadgeTableReady = true;
+}
+
 /**
  * Liste paginee + filtres. Renvoie items + total.
  *
  * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, phone?:string, transactionId?:string, amountRule?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
  */
 export async function listSms(f) {
+  await ensureTransactionBadgeTable();
   const where = [];
   const params = [];
   if (f.status)   { params.push(f.status);            where.push(`s.status = $${params.length}`); }
@@ -186,6 +201,7 @@ export async function setTransactionNote(transactionId, note) {
 }
 
 export async function setTransactionBadge(transactionId, amountRuleId) {
+  await ensureTransactionBadgeTable();
   const normalizedTransactionId = String(transactionId || '').trim();
   const normalizedAmountRuleId = String(amountRuleId || '').trim();
   if (!normalizedTransactionId) return null;
