@@ -96,6 +96,28 @@ CREATE TABLE IF NOT EXISTS transaction_badge (
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Echeance connue par client. Elle s'applique aux anciennes et futures
+-- transactions du meme numero client.
+CREATE TABLE IF NOT EXISTS client_badge (
+  phone_number   TEXT PRIMARY KEY,
+  amount_rule_id TEXT NOT NULL DEFAULT '',
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO client_badge (phone_number, amount_rule_id, updated_at)
+SELECT DISTINCT ON (a.phone_number)
+  a.phone_number,
+  tb.amount_rule_id,
+  tb.updated_at
+FROM transaction_badge tb
+JOIN sms_analysis a ON a.transaction_id = tb.transaction_id
+WHERE a.phone_number IS NOT NULL
+  AND TRIM(a.phone_number) <> ''
+  AND tb.amount_rule_id IS NOT NULL
+  AND TRIM(tb.amount_rule_id) <> ''
+ORDER BY a.phone_number, tb.updated_at DESC
+ON CONFLICT (phone_number) DO NOTHING;
+
 -- Suppression des colonnes inutiles cote metier :
 --   - provider, confidence : debug technique, non consomme par l'UI
 --   - sms_type : OpenMoney ne traite que les depots, le reste est ignored

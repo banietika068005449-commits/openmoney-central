@@ -10,7 +10,7 @@ const COLUMNS = `
   a.phone_number, COALESCE(a.imei, ci.imei) AS imei, a.reference, a.transaction_id,
   tn.note AS transaction_note,
   sn.note AS sms_note,
-  tb.amount_rule_id AS transaction_badge_rule_id,
+  CASE WHEN cb.phone_number IS NOT NULL THEN cb.amount_rule_id ELSE tb.amount_rule_id END AS transaction_badge_rule_id,
   a.extracted_data, a.analysis_status
 `;
 
@@ -21,6 +21,7 @@ const BASE_SELECT = `
   LEFT JOIN transaction_note tn ON tn.transaction_id = a.transaction_id
   LEFT JOIN sms_note sn ON sn.sms_id = s.id
   LEFT JOIN transaction_badge tb ON tb.transaction_id = a.transaction_id
+  LEFT JOIN client_badge cb ON cb.phone_number = a.phone_number
 `;
 
 let smsAuxTablesReady = false;
@@ -40,6 +41,28 @@ async function ensureSmsAuxTables() {
       amount_rule_id TEXT NOT NULL DEFAULT '',
       updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_badge (
+      phone_number   TEXT PRIMARY KEY,
+      amount_rule_id TEXT NOT NULL DEFAULT '',
+      updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    INSERT INTO client_badge (phone_number, amount_rule_id, updated_at)
+    SELECT DISTINCT ON (a.phone_number)
+      a.phone_number,
+      tb.amount_rule_id,
+      tb.updated_at
+    FROM transaction_badge tb
+    JOIN sms_analysis a ON a.transaction_id = tb.transaction_id
+    WHERE a.phone_number IS NOT NULL
+      AND TRIM(a.phone_number) <> ''
+      AND tb.amount_rule_id IS NOT NULL
+      AND TRIM(tb.amount_rule_id) <> ''
+    ORDER BY a.phone_number, tb.updated_at DESC
+    ON CONFLICT (phone_number) DO NOTHING
   `);
   smsAuxTablesReady = true;
 }
@@ -230,6 +253,40 @@ export async function setTransactionBadge(transactionId, amountRuleId) {
     [normalizedTransactionId, normalizedAmountRuleId],
   );
   return rows[0] ?? null;
+}
+
+export async function setSmsEcheance(id, amountRuleId) {
+  await ensureSmsAuxTables();
+  const normalizedAmountRuleId = String(amountRuleId || '').trim();
+  const { rows } = await pool.query(
+    `SELECT phone_number FROM sms_analysis WHERE sms_id = $1`,
+    [id],
+  );
+  const phoneNumber = String(rows[0]?.phone_number || '').trim();
+  if (!phoneNumber) return null;
+
+  if (!normalizedAmountRuleId) {
+    await pool.query(
+      `INSERT INTO client_badge (phone_number, amount_rule_id, updated_at)
+       VALUES ($1, '', NOW())
+       ON CONFLICT (phone_number) DO UPDATE SET
+         amount_rule_id = '',
+         updated_at = NOW()`,
+      [phoneNumber],
+    );
+    return { sms_id: Number(id), phone_number: phoneNumber, transaction_badge_rule_id: '' };
+  }
+
+  const result = await pool.query(
+    `INSERT INTO client_badge (phone_number, amount_rule_id, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (phone_number) DO UPDATE SET
+       amount_rule_id = EXCLUDED.amount_rule_id,
+       updated_at = NOW()
+     RETURNING phone_number, amount_rule_id AS transaction_badge_rule_id`,
+    [phoneNumber, normalizedAmountRuleId],
+  );
+  return { sms_id: Number(id), ...result.rows[0] };
 }
 
 export async function getSmsById(id) {
