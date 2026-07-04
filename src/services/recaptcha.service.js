@@ -37,10 +37,13 @@ export async function loadRecaptchaConfig() {
     }
   }
 
+  const siteKey = dbConfig.siteKey || process.env.RECAPTCHA_SITE_KEY || fileConfig.siteKey;
+  const secretKey = dbConfig.secretKey || process.env.RECAPTCHA_SECRET_KEY || fileConfig.secretKey;
+
   return {
-    enabled: dbConfig.enabled ?? true,
-    siteKey: dbConfig.siteKey || process.env.RECAPTCHA_SITE_KEY || fileConfig.siteKey,
-    secretKey: dbConfig.secretKey || process.env.RECAPTCHA_SECRET_KEY || fileConfig.secretKey,
+    enabled: dbConfig.enabled ?? Boolean(siteKey && secretKey),
+    siteKey,
+    secretKey,
     timeoutMs: Number(process.env.RECAPTCHA_TIMEOUT_MS || 4000),
   };
 }
