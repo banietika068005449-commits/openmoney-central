@@ -18,6 +18,7 @@ export function smsRouter({ analysisService }) {
     status:   z.string().optional(),
     smsType:  z.string().optional(),
     operator: z.string().optional(),
+    phone:    z.string().trim().optional(),
     q:        z.string().optional(),
     sort:     z.enum(['recent', 'ancient']).optional(),
     period:   z.enum(['all', 'days', 'week']).optional().default('all'),

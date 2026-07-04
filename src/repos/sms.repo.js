@@ -19,13 +19,14 @@ const BASE_SELECT = `
 /**
  * Liste paginee + filtres. Renvoie items + total.
  *
- * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
+ * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, phone?:string, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
  */
 export async function listSms(f) {
   const where = [];
   const params = [];
   if (f.status)   { params.push(f.status);            where.push(`s.status = $${params.length}`); }
   if (f.operator) { params.push(f.operator);          where.push(`a.operator = $${params.length}`); }
+  if (f.phone)    { params.push(`%${f.phone}%`);      where.push(`a.phone_number ILIKE $${params.length}`); }
   if (f.q)        { params.push(`%${f.q}%`);          where.push(`(s.sender ILIKE $${params.length} OR s.content ILIKE $${params.length})`); }
   if (f.period === 'days') {
     params.push(new Date(Date.now() - 24 * 60 * 60 * 1000));
