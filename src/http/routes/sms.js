@@ -18,6 +18,7 @@ export function smsRouter({ analysisService }) {
     status:   z.string().optional(),
     smsType:  z.string().optional(),
     operator: z.string().optional(),
+    operatorPrefix: z.enum(['MTN', 'AIRTEL']).optional(),
     phone:    z.string().trim().optional(),
     transactionId: z.string().trim().optional(),
     amountRule: z.coerce.number().int().positive().optional(),

@@ -70,7 +70,7 @@ async function ensureSmsAuxTables() {
 /**
  * Liste paginee + filtres. Renvoie items + total.
  *
- * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, phone?:string, transactionId?:string, amountRule?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
+ * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, operatorPrefix?:'MTN'|'AIRTEL', phone?:string, transactionId?:string, amountRule?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
  */
 export async function listSms(f) {
   await ensureSmsAuxTables();
@@ -78,6 +78,11 @@ export async function listSms(f) {
   const params = [];
   if (f.status)   { params.push(f.status);            where.push(`s.status = $${params.length}`); }
   if (f.operator) { params.push(f.operator);          where.push(`a.operator = $${params.length}`); }
+  if (f.operatorPrefix === 'MTN') {
+    where.push(`a.phone_number LIKE '06%'`);
+  } else if (f.operatorPrefix === 'AIRTEL') {
+    where.push(`(a.phone_number LIKE '05%' OR a.phone_number LIKE '04%')`);
+  }
   if (f.phone)    { params.push(`%${f.phone}%`);      where.push(`a.phone_number ILIKE $${params.length}`); }
   if (f.transactionId) { params.push(f.transactionId); where.push(`a.transaction_id = $${params.length}`); }
   if (f.amountRule) { params.push(f.amountRule);      where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
