@@ -86,7 +86,16 @@ export async function listSms(f) {
   if (f.phone)    { params.push(`%${f.phone}%`);      where.push(`a.phone_number ILIKE $${params.length}`); }
   if (f.transactionId) { params.push(f.transactionId); where.push(`a.transaction_id = $${params.length}`); }
   if (f.amountRule) { params.push(f.amountRule);      where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
-  if (f.q)        { params.push(`%${f.q}%`);          where.push(`(s.sender ILIKE $${params.length} OR s.content ILIKE $${params.length})`); }
+  if (f.q) {
+    params.push(`%${f.q}%`);
+    where.push(`(
+      s.sender ILIKE $${params.length}
+      OR s.content ILIKE $${params.length}
+      OR a.phone_number ILIKE $${params.length}
+      OR a.transaction_id ILIKE $${params.length}
+      OR a.reference ILIKE $${params.length}
+    )`);
+  }
   if (f.period === 'days') {
     params.push(new Date(Date.now() - 24 * 60 * 60 * 1000));
     where.push(`s.received_at >= $${params.length}`);
