@@ -8,6 +8,7 @@ import aiRouter from './routes/ai.js';
 import accessTokensRouter from './routes/accessTokens.js';
 import transactionsRouter from './routes/transactions.js';
 import authRouter from './routes/auth.js';
+import improvementsRouter from './routes/improvements.js';
 import pushRouter from '../routes/push.js';
 
 /**
@@ -41,6 +42,7 @@ export function createApp({ analysisService } = {}) {
   }
   app.use('/ai', aiRouter);
   app.use('/access-tokens', accessTokensRouter);
+  app.use('/improvements', improvementsRouter);
   app.use('/api/transactions', transactionsRouter());
   app.use('/api/push', pushRouter);
 

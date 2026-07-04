@@ -121,6 +121,7 @@ ALTER TABLE ai_provider ALTER COLUMN name DROP NOT NULL;
 --   system_prompt : prompt systeme partage par les analyseurs LLM.
 --   recaptcha_enabled : active/desactive la verification reCAPTCHA au login admin.
 --   recaptcha_site_key / recaptcha_secret_key : cles Google reCAPTCHA v2.
+--   improvement_amount_rules : regles couleur/montant du module Amelioration.
 CREATE TABLE IF NOT EXISTS parametre (
     cle             VARCHAR(64) PRIMARY KEY,
     valeur          TEXT,
