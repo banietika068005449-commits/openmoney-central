@@ -16,6 +16,7 @@ function normalizePayload(payload = {}) {
     icon: payload.icon || '/logo.png',
     badge: payload.badge || '/logo.png',
     url: payload.url || '/',
+    tag: payload.tag || 'openmoney-new-transaction',
     data: payload.data || {},
   };
 }

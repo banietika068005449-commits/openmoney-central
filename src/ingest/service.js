@@ -78,6 +78,7 @@ export async function ingest(payload) {
           url: '/',
           icon: '/logo.png',
           badge: '/logo.png',
+          tag: 'openmoney-new-transaction',
         });
       } catch (err) {
         console.error('[push] envoi apres ingestion impossible', err.message);
