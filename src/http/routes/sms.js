@@ -21,6 +21,7 @@ export function smsRouter({ analysisService }) {
     operatorPrefix: z.enum(['MTN', 'AIRTEL']).optional(),
     phone:    z.string().trim().optional(),
     transactionId: z.string().trim().optional(),
+    amount: z.coerce.number().int().positive().optional(),
     amountRule: z.coerce.number().int().positive().optional(),
     q:        z.string().optional(),
     sort:     z.enum(['recent', 'ancient']).optional(),
