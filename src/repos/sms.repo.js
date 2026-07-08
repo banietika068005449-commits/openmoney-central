@@ -11,6 +11,7 @@ const COLUMNS = `
   tn.note AS transaction_note,
   sn.note AS sms_note,
   CASE WHEN cb.phone_number IS NOT NULL THEN cb.amount_rule_id ELSE tb.amount_rule_id END AS transaction_badge_rule_id,
+  TO_CHAR(cmd.manual_date, 'YYYY-MM-DD') AS transaction_manual_date,
   a.extracted_data, a.analysis_status
 `;
 
@@ -22,6 +23,7 @@ const BASE_SELECT = `
   LEFT JOIN sms_note sn ON sn.sms_id = s.id
   LEFT JOIN transaction_badge tb ON tb.transaction_id = a.transaction_id
   LEFT JOIN client_badge cb ON cb.phone_number = a.phone_number
+  LEFT JOIN client_manual_date cmd ON cmd.phone_number = a.phone_number
 `;
 
 let smsAuxTablesReady = false;
@@ -64,13 +66,20 @@ async function ensureSmsAuxTables() {
     ORDER BY a.phone_number, tb.updated_at DESC
     ON CONFLICT (phone_number) DO NOTHING
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_manual_date (
+      phone_number TEXT PRIMARY KEY,
+      manual_date  DATE,
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
   smsAuxTablesReady = true;
 }
 
 /**
  * Liste paginee + filtres. Renvoie items + total.
  *
- * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, operatorPrefix?:'MTN'|'AIRTEL', phone?:string, transactionId?:string, amount?:number, amountRule?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
+ * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, operatorPrefix?:'MTN'|'AIRTEL', phone?:string, transactionId?:string, imei?:string, hasNote?:boolean, amount?:number, amountRule?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
  */
 export async function listSms(f) {
   await ensureSmsAuxTables();
@@ -85,6 +94,8 @@ export async function listSms(f) {
   }
   if (f.phone)    { params.push(`%${f.phone}%`);      where.push(`a.phone_number ILIKE $${params.length}`); }
   if (f.transactionId) { params.push(f.transactionId); where.push(`a.transaction_id = $${params.length}`); }
+  if (f.imei)     { params.push(`%${f.imei}%`);       where.push(`COALESCE(a.imei, ci.imei) ILIKE $${params.length}`); }
+  if (f.hasNote)  { where.push(`(sn.note IS NOT NULL AND TRIM(sn.note) <> '')`); }
   if (f.amount) { params.push(f.amount);              where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
   if (f.amountRule) { params.push(f.amountRule);      where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
   if (f.q) {
@@ -300,6 +311,33 @@ export async function setSmsEcheance(id, amountRuleId) {
        updated_at = NOW()
      RETURNING phone_number, amount_rule_id AS transaction_badge_rule_id`,
     [phoneNumber, normalizedAmountRuleId],
+  );
+  return { sms_id: Number(id), ...result.rows[0] };
+}
+
+export async function setManualDate(id, isoDate) {
+  await ensureSmsAuxTables();
+  const normalizedDate = String(isoDate || '').trim();
+  const { rows } = await pool.query(
+    `SELECT phone_number FROM sms_analysis WHERE sms_id = $1`,
+    [id],
+  );
+  const phoneNumber = String(rows[0]?.phone_number || '').trim();
+  if (!phoneNumber) return null;
+
+  if (!normalizedDate) {
+    await pool.query(`DELETE FROM client_manual_date WHERE phone_number = $1`, [phoneNumber]);
+    return { sms_id: Number(id), phone_number: phoneNumber, transaction_manual_date: null };
+  }
+
+  const result = await pool.query(
+    `INSERT INTO client_manual_date (phone_number, manual_date, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (phone_number) DO UPDATE SET
+       manual_date = EXCLUDED.manual_date,
+       updated_at = NOW()
+     RETURNING phone_number, TO_CHAR(manual_date, 'YYYY-MM-DD') AS transaction_manual_date`,
+    [phoneNumber, normalizedDate],
   );
   return { sms_id: Number(id), ...result.rows[0] };
 }
