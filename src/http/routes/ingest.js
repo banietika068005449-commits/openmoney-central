@@ -47,8 +47,10 @@ function buildAnalysisWhere(filters) {
     // C'est un sous-etat de 'analyzed' : il doit rester visible dans
     // l'historique et compte dans la somme des depots. Sans ce IN, copier un
     // numero faisait disparaitre la transaction et baisser le total.
+    // Pas de condition sur a.analysis_status : les KPI du module transactions
+    // admin (sms.repo.js listSms stats) n'en ont pas non plus. L'app mobile
+    // doit afficher exactement les memes transactions et le meme montant.
     "s.status IN ('analyzed', 'treated')",
-    "a.analysis_status = 'success'",
   ];
   const params = [];
 
@@ -79,7 +81,8 @@ router.get('/analysis/summary', requireIngestToken, async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT
          COUNT(*)::int AS total,
-         COALESCE(SUM(a.amount), 0)::float8 AS somme_depots
+         COALESCE(SUM(a.amount), 0)::float8 AS somme_depots,
+         (SELECT COUNT(*)::int FROM sms) AS total_sms
        FROM sms s
        JOIN sms_analysis a ON a.sms_id = s.id
        ${whereSql}`,
@@ -88,6 +91,9 @@ router.get('/analysis/summary', requireIngestToken, async (req, res, next) => {
     res.json({
       total: rows[0]?.total ?? 0,
       sommeDepots: rows[0]?.somme_depots ?? 0,
+      // Meme valeur que le KPI "Total" du module transactions admin
+      // (sms.repo.js listSms stats) : nombre global de SMS, sans filtre.
+      totalSms: rows[0]?.total_sms ?? 0,
     });
   } catch (e) {
     next(e);
