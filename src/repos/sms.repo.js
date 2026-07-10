@@ -89,7 +89,7 @@ async function ensureSmsAuxTables() {
 /**
  * Liste paginee + filtres. Renvoie items + total.
  *
- * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, operatorPrefix?:'MTN'|'AIRTEL', phone?:string, transactionId?:string, imei?:string, hasNote?:boolean, amount?:number, amountRule?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
+ * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, operatorPrefix?:'MTN'|'AIRTEL', phone?:string, transactionId?:string, imei?:string, hasNote?:boolean, tecno?:'only'|'hide', amount?:number, amountRule?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
  */
 export async function listSms(f) {
   await ensureSmsAuxTables();
@@ -106,6 +106,8 @@ export async function listSms(f) {
   if (f.transactionId) { params.push(f.transactionId); where.push(`a.transaction_id = $${params.length}`); }
   if (f.imei)     { params.push(`%${f.imei}%`);       where.push(`COALESCE(a.imei, ci.imei) ILIKE $${params.length}`); }
   if (f.hasNote)  { where.push(`(sn.note IS NOT NULL AND TRIM(sn.note) <> '')`); }
+  if (f.tecno === 'only') where.push(`ct.phone_number IS NOT NULL`);
+  else if (f.tecno === 'hide') where.push(`ct.phone_number IS NULL`);
   if (f.amount) { params.push(f.amount);              where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
   if (f.amountRule) { params.push(f.amountRule);      where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
   if (f.q) {

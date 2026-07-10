@@ -23,6 +23,7 @@ export function smsRouter({ analysisService }) {
     transactionId: z.string().trim().optional(),
     imei:     z.string().trim().regex(/^\d{0,32}$/).optional(),
     hasNote:  z.coerce.boolean().optional(),
+    tecno:    z.enum(['only', 'hide']).optional(),
     amount: z.coerce.number().int().positive().optional(),
     amountRule: z.coerce.number().int().positive().optional(),
     q:        z.string().optional(),
