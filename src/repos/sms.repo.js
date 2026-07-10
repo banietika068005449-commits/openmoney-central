@@ -13,6 +13,7 @@ const COLUMNS = `
   CASE WHEN cb.phone_number IS NOT NULL THEN cb.amount_rule_id ELSE tb.amount_rule_id END AS transaction_badge_rule_id,
   TO_CHAR(cmd.manual_date, 'YYYY-MM-DD') AS transaction_manual_date,
   (ct.phone_number IS NOT NULL) AS tecno,
+  COALESCE(ct.auto, false) AS tecno_auto,
   a.extracted_data, a.analysis_status
 `;
 
@@ -81,6 +82,7 @@ async function ensureSmsAuxTables() {
       updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE client_tecno ADD COLUMN IF NOT EXISTS auto BOOLEAN NOT NULL DEFAULT false`);
   smsAuxTablesReady = true;
 }
 
@@ -361,15 +363,54 @@ export async function setTecno(id, marked) {
 
   if (marked) {
     await pool.query(
-      `INSERT INTO client_tecno (phone_number, updated_at)
-       VALUES ($1, NOW())
+      `INSERT INTO client_tecno (phone_number, auto, updated_at)
+       VALUES ($1, false, NOW())
        ON CONFLICT (phone_number) DO NOTHING`,
       [phoneNumber],
     );
   } else {
-    await pool.query(`DELETE FROM client_tecno WHERE phone_number = $1`, [phoneNumber]);
+    // Ne jamais retirer un numero force (auto=true) : sa case est verrouillee cote UI.
+    await pool.query(`DELETE FROM client_tecno WHERE phone_number = $1 AND auto = false`, [phoneNumber]);
   }
   return { sms_id: Number(id), phone_number: phoneNumber, tecno: !!marked };
+}
+
+// ---- Liste TECNO forcee (numeros toujours coches, geree par le module dedie) ----
+
+function normalizeTecnoPhone(phone) {
+  return String(phone || '').replace(/\D/g, '');
+}
+
+export async function listForcedTecno() {
+  await ensureSmsAuxTables();
+  const { rows } = await pool.query(
+    `SELECT phone_number, updated_at FROM client_tecno WHERE auto = true ORDER BY updated_at DESC`,
+  );
+  return { items: rows };
+}
+
+export async function addForcedTecno(phone) {
+  await ensureSmsAuxTables();
+  const phoneNumber = normalizeTecnoPhone(phone);
+  if (phoneNumber.length < 6 || phoneNumber.length > 15) return null;
+  const { rows } = await pool.query(
+    `INSERT INTO client_tecno (phone_number, auto, updated_at)
+     VALUES ($1, true, NOW())
+     ON CONFLICT (phone_number) DO UPDATE SET auto = true, updated_at = NOW()
+     RETURNING phone_number, updated_at`,
+    [phoneNumber],
+  );
+  return rows[0];
+}
+
+export async function removeForcedTecno(phone) {
+  await ensureSmsAuxTables();
+  const phoneNumber = normalizeTecnoPhone(phone);
+  const { rowCount } = await pool.query(
+    `DELETE FROM client_tecno WHERE phone_number = $1 AND auto = true`,
+    [phoneNumber],
+  );
+  return rowCount > 0;
 }
 
 export async function getSmsById(id) {
