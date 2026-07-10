@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdminToken } from '../middleware/admin.js';
 import {
-  listSms, getSmsById, deleteSmsById, resetForReanalyze, setSmsStatus, setSmsImei, setSmsNote, setSmsEcheance, setTransactionNote, setTransactionBadge, setManualDate,
+  listSms, getSmsById, deleteSmsById, resetForReanalyze, setSmsStatus, setSmsImei, setSmsNote, setSmsEcheance, setTransactionNote, setTransactionBadge, setManualDate, setTecno,
 } from '../../repos/sms.repo.js';
 
 /**
@@ -113,6 +113,17 @@ export function smsRouter({ analysisService }) {
         date: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).default(''),
       }).parse(req.body);
       const updated = await setManualDate(req.params.id, body.date);
+      if (!updated) return res.status(404).json({ error: 'Client introuvable pour ce SMS' });
+      res.json(updated);
+    } catch (e) { next(e); }
+  });
+
+  router.patch('/:id/tecno', async (req, res, next) => {
+    try {
+      const body = z.object({
+        marked: z.coerce.boolean().default(false),
+      }).parse(req.body);
+      const updated = await setTecno(req.params.id, body.marked);
       if (!updated) return res.status(404).json({ error: 'Client introuvable pour ce SMS' });
       res.json(updated);
     } catch (e) { next(e); }

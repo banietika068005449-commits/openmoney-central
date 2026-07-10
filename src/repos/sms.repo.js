@@ -12,6 +12,7 @@ const COLUMNS = `
   sn.note AS sms_note,
   CASE WHEN cb.phone_number IS NOT NULL THEN cb.amount_rule_id ELSE tb.amount_rule_id END AS transaction_badge_rule_id,
   TO_CHAR(cmd.manual_date, 'YYYY-MM-DD') AS transaction_manual_date,
+  (ct.phone_number IS NOT NULL) AS tecno,
   a.extracted_data, a.analysis_status
 `;
 
@@ -24,6 +25,7 @@ const BASE_SELECT = `
   LEFT JOIN transaction_badge tb ON tb.transaction_id = a.transaction_id
   LEFT JOIN client_badge cb ON cb.phone_number = a.phone_number
   LEFT JOIN client_manual_date cmd ON cmd.phone_number = a.phone_number
+  LEFT JOIN client_tecno ct ON ct.phone_number = a.phone_number
 `;
 
 let smsAuxTablesReady = false;
@@ -70,6 +72,12 @@ async function ensureSmsAuxTables() {
     CREATE TABLE IF NOT EXISTS client_manual_date (
       phone_number TEXT PRIMARY KEY,
       manual_date  DATE,
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_tecno (
+      phone_number TEXT PRIMARY KEY,
       updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
@@ -340,6 +348,28 @@ export async function setManualDate(id, isoDate) {
     [phoneNumber, normalizedDate],
   );
   return { sms_id: Number(id), ...result.rows[0] };
+}
+
+export async function setTecno(id, marked) {
+  await ensureSmsAuxTables();
+  const { rows } = await pool.query(
+    `SELECT phone_number FROM sms_analysis WHERE sms_id = $1`,
+    [id],
+  );
+  const phoneNumber = String(rows[0]?.phone_number || '').trim();
+  if (!phoneNumber) return null;
+
+  if (marked) {
+    await pool.query(
+      `INSERT INTO client_tecno (phone_number, updated_at)
+       VALUES ($1, NOW())
+       ON CONFLICT (phone_number) DO NOTHING`,
+      [phoneNumber],
+    );
+  } else {
+    await pool.query(`DELETE FROM client_tecno WHERE phone_number = $1`, [phoneNumber]);
+  }
+  return { sms_id: Number(id), phone_number: phoneNumber, tecno: !!marked };
 }
 
 export async function getSmsById(id) {
