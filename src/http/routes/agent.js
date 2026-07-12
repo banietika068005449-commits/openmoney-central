@@ -24,10 +24,12 @@ function toAgentTransaction(row) {
     phone_number: row.phone_number,
     transaction_id: row.transaction_id,
     reference: row.reference,
-    note: row.transaction_note || '',
+    // Note lisible par l'agent (lecture seule) : celle editee par l'admin
+    // (sms_note via la NoteSidebar) en priorite, sinon la note de transaction.
+    note: row.sms_note || row.transaction_note || '',
     tecno_auto: row.tecno_auto,
     admin_processing_status: row.admin_processing_status,
-    flagged: row.admin_processing_status === 'PROBLEM',
+    flagged: !!row.flagged,
   };
 }
 

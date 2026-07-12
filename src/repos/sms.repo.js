@@ -14,6 +14,7 @@ const COLUMNS = `
   TO_CHAR(cmd.manual_date, 'YYYY-MM-DD') AS transaction_manual_date,
   (ct.phone_number IS NOT NULL) AS tecno,
   COALESCE(ct.auto, false) AS tecno_auto,
+  (s.flagged_by_agent_id IS NOT NULL) AS flagged,
   a.extracted_data, a.analysis_status
 `;
 
@@ -240,17 +241,17 @@ export async function setSmsAdminProcessingStatus(id, adminProcessingStatus) {
 }
 
 /**
- * Signalement d'une transaction par un agent : passe le SMS en PROBLEM (rouge
- * cote admin) et memorise l'agent signalant pour le notifier au traitement.
+ * Signalement d'une transaction par un agent. IMPORTANT : ne modifie JAMAIS
+ * admin_processing_status. On memorise seulement l'agent signalant (marqueur de
+ * signalement) : cela rend la transaction ROUGE cote admin (via `flagged`) et
+ * declenche l'alerte flottante, sans toucher au statut de traitement.
+ * Re-signalement autorise : remet flag_ack_at a NULL pour re-declencher l'alerte.
  * Renvoie { id, phone_number, transaction_id } ou null si SMS introuvable.
  */
 export async function flagSmsByAgent(id, agentId) {
-  // Re-signalement autorise : on remet flag_ack_at a NULL pour re-declencher
-  // l'alerte flottante cote admin.
   const { rows } = await pool.query(
     `UPDATE sms s
-     SET admin_processing_status = 'PROBLEM',
-         flagged_by_agent_id = $2,
+     SET flagged_by_agent_id = $2,
          flagged_at = NOW(),
          flag_ack_at = NULL
      FROM sms_analysis a
@@ -260,7 +261,7 @@ export async function flagSmsByAgent(id, agentId) {
   );
   if (rows[0]) return rows[0];
   const { rows: bare } = await pool.query(
-    `UPDATE sms SET admin_processing_status = 'PROBLEM', flagged_by_agent_id = $2, flagged_at = NOW(), flag_ack_at = NULL
+    `UPDATE sms SET flagged_by_agent_id = $2, flagged_at = NOW(), flag_ack_at = NULL
      WHERE id = $1 RETURNING id`,
     [id, agentId],
   );

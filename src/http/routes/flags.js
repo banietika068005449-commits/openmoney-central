@@ -9,7 +9,7 @@ const ackSchema = z.object({ action: z.enum(['seen', 'searching', 'waiting']) })
 
 const ACTIONS = {
   seen: 'vue par l\'administrateur',
-  searching: 'en plein traitement',
+  searching: 'debloquee',
   waiting: 'mise en attente',
 };
 
