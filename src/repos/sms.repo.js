@@ -110,6 +110,7 @@ export async function listSms(f) {
   if (f.phone)    { params.push(`%${f.phone}%`);      where.push(`a.phone_number ILIKE $${params.length}`); }
   if (f.transactionId) { params.push(f.transactionId); where.push(`a.transaction_id = $${params.length}`); }
   if (f.imei)     { params.push(`%${f.imei}%`);       where.push(`COALESCE(a.imei, ci.imei) ILIKE $${params.length}`); }
+  if (f.hasImei)  { where.push(`(COALESCE(a.imei, ci.imei) IS NOT NULL AND TRIM(COALESCE(a.imei, ci.imei)) <> '')`); }
   if (f.hasNote)  { where.push(`(sn.note IS NOT NULL AND TRIM(sn.note) <> '')`); }
   if (f.tecno === 'only') where.push(`ct.phone_number IS NOT NULL`);
   else if (f.tecno === 'hide') where.push(`ct.phone_number IS NULL`);
