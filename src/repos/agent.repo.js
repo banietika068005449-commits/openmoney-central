@@ -46,7 +46,7 @@ export async function listAgents() {
 export async function getAgentByPhone(phone) {
   const { rows } = await pool.query(
     `SELECT id, name, city, phone, pin_hash, pin_salt, must_set_pin, is_active,
-            created_at, updated_at, last_login_at
+            created_at, updated_at, last_login_at, photo_url
      FROM agent WHERE phone = $1 LIMIT 1`,
     [String(phone).trim()],
   );

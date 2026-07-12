@@ -40,7 +40,7 @@ router.post('/status', authLimiter, async (req, res, next) => {
     if (!agent || !agent.is_active) {
       return res.status(404).json({ error: 'AGENT_NOT_FOUND' });
     }
-    return res.json({ exists: true, pinSet: !agent.must_set_pin });
+    return res.json({ exists: true, pinSet: !agent.must_set_pin, name: agent.name, photoUrl: agent.photo_url });
   } catch (e) { next(e); }
 });
 
