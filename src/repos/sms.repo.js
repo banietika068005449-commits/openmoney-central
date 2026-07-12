@@ -206,18 +206,28 @@ export async function listSms(f) {
  * sms + sms_analysis), triees recentes d'abord. Reutilise COLUMNS/BASE_SELECT.
  * Renvoie { items, total }.
  */
-export async function listArchivedTransactions(agentId, { limit = 200, offset = 0 } = {}) {
+export async function listArchivedTransactions(agentId, { status, phone, date, limit = 200, offset = 0 } = {}) {
   await ensureSmsAuxTables();
-  const where = `WHERE a.phone_number IN (SELECT phone_number FROM agent_archive WHERE agent_id = $1)`;
-  const totalQ = await pool.query(
-    `SELECT COUNT(*)::int AS n ${BASE_SELECT} ${where}`,
-    [agentId],
-  );
+  const params = [agentId];
+  const conds = [`a.phone_number IN (SELECT phone_number FROM agent_archive WHERE agent_id = $1)`];
+  if (status) { params.push(status); conds.push(`s.admin_processing_status = $${params.length}`); }
+  if (phone) { params.push(`%${phone}%`); conds.push(`a.phone_number ILIKE $${params.length}`); }
+  if (date) {
+    const start = new Date(`${date}T00:00:00+01:00`);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    params.push(start); conds.push(`s.received_at >= $${params.length}`);
+    params.push(end); conds.push(`s.received_at < $${params.length}`);
+  }
+  const where = `WHERE ${conds.join(' AND ')}`;
+
+  const totalQ = await pool.query(`SELECT COUNT(*)::int AS n ${BASE_SELECT} ${where}`, params);
+
+  params.push(limit, offset);
   const itemsQ = await pool.query(
     `SELECT ${COLUMNS} ${BASE_SELECT} ${where}
      ORDER BY s.received_at DESC
-     LIMIT $2 OFFSET $3`,
-    [agentId, limit, offset],
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params,
   );
   return { items: itemsQ.rows, total: totalQ.rows[0].n };
 }

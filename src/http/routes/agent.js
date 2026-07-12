@@ -86,10 +86,13 @@ export default function agentRouter() {
     } catch (e) { next(e); }
   });
 
-  // Toutes les transactions des numeros archives par l'agent (+ total).
+  // Transactions des numeros archives par l'agent, filtrees par statut/numero/date.
   router.get('/archived-transactions', async (req, res, next) => {
     try {
       const q = z.object({
+        status: z.enum(['ANALYSIS', 'UNLOCKED', 'TREATED', 'PROBLEM', 'NOUVEAU']).optional(),
+        phone: z.string().trim().optional(),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         limit: z.coerce.number().int().positive().max(500).default(200),
         offset: z.coerce.number().int().nonnegative().default(0),
       }).parse(req.query);
