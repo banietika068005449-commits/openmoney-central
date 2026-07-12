@@ -44,3 +44,16 @@ services:
         value: 4000
       - key: LOGIN_RATE_LIMIT_MAX
         value: 10
+      # ---- Synchro partenaire Tecno Ya Niongo ----
+      - key: TECNO_PARTNER_API_KEY
+        sync: false         # secret -> cle partenaire, definie dans le dashboard
+      - key: TECNO_PARTNER_BASE_URL
+        value: https://tecno-api-6z50.onrender.com
+      - key: TECNO_PARTNER_TIMEOUT_MS
+        value: 15000
+      - key: TECNO_SYNC_ENABLED
+        value: true
+      - key: TECNO_SYNC_INTERVAL_MS
+        value: 900000       # incremental : 15 min
+      - key: TECNO_SYNC_FULL_INTERVAL_MS
+        value: 86400000     # resync plein : 24 h

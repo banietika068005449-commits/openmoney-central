@@ -118,6 +118,21 @@ WHERE a.phone_number IS NOT NULL
 ORDER BY a.phone_number, tb.updated_at DESC
 ON CONFLICT (phone_number) DO NOTHING;
 
+-- Numeros marques TECNO en permanence (Liste TECNO du module dedie).
+--   auto=true   : numero verrouille (saisi manuellement OU importe du partenaire).
+--   source      : 'manual' (saisie admin) | 'partner' (API Tecno Ya Niongo).
+--   fetched_at  : horodatage du dernier import partenaire.
+-- (Table egalement geree/migree par ensureSmsAuxTables() dans sms.repo.js.)
+CREATE TABLE IF NOT EXISTS client_tecno (
+  phone_number TEXT PRIMARY KEY,
+  auto         BOOLEAN NOT NULL DEFAULT false,
+  source       TEXT NOT NULL DEFAULT 'manual',
+  fetched_at   TIMESTAMPTZ,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE client_tecno ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE client_tecno ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ;
+
 -- Suppression des colonnes inutiles cote metier :
 --   - provider, confidence : debug technique, non consomme par l'UI
 --   - sms_type : OpenMoney ne traite que les depots, le reste est ignored

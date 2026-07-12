@@ -5,6 +5,7 @@ const CLE_RECAPTCHA_ENABLED = 'recaptcha_enabled';
 const CLE_RECAPTCHA_SITE_KEY = 'recaptcha_site_key';
 const CLE_RECAPTCHA_SECRET_KEY = 'recaptcha_secret_key';
 const CLE_IMPROVEMENT_AMOUNT_RULES = 'improvement_amount_rules';
+const CLE_TECNO_PARTNER_SYNC = 'tecno_partner_sync';
 
 async function get(cle) {
   const { rows } = await pool.query(
@@ -74,4 +75,37 @@ export async function getImprovementSettings() {
 
 export async function setImprovementSettings({ amountRules = [] }) {
   await set(CLE_IMPROVEMENT_AMOUNT_RULES, JSON.stringify({ amountRules }));
+}
+
+// ---- Etat de synchronisation Tecno Ya Niongo ----
+// Champs : { lastRunAt, lastSuccessAt, lastCursor, lastStatus, lastError,
+//            lastUpserted, totalDevices }
+// lastCursor = horodatage ISO du debut de la derniere execution reussie ; il
+// alimente updatedSince du prochain incremental (l'API ne renvoyant pas de date).
+
+const DEFAULT_TECNO_SYNC_STATE = {
+  lastRunAt: null,
+  lastSuccessAt: null,
+  lastCursor: null,
+  lastStatus: null,
+  lastError: null,
+  lastUpserted: 0,
+  totalDevices: 0,
+};
+
+export async function getTecnoSyncState() {
+  const raw = await get(CLE_TECNO_PARTNER_SYNC);
+  if (!raw) return { ...DEFAULT_TECNO_SYNC_STATE };
+  try {
+    return { ...DEFAULT_TECNO_SYNC_STATE, ...JSON.parse(raw) };
+  } catch {
+    return { ...DEFAULT_TECNO_SYNC_STATE };
+  }
+}
+
+export async function setTecnoSyncState(patch) {
+  const current = await getTecnoSyncState();
+  const next = { ...current, ...patch };
+  await set(CLE_TECNO_PARTNER_SYNC, JSON.stringify(next));
+  return next;
 }

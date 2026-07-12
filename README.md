@@ -45,6 +45,58 @@ npm start
 | `POLL_INTERVAL_MS`  | `5000`  | Intervalle entre deux passes du worker                  |
 | `BATCH_SIZE`        | `50`    | Nombre de SMS traites par passe                         |
 
+### Synchro TECNO « Tecno Ya Niongo »
+
+| variable                       | defaut                                | role                                                              |
+| ------------------------------ | ------------------------------------- | ---------------------------------------------------------------- |
+| `TECNO_PARTNER_API_KEY`        | (aucun)                               | Cle partenaire, envoyee en header `x-api-key`. **Secret** — jamais en dur, jamais loggee. Absente ⇒ synchro desactivee. |
+| `TECNO_PARTNER_BASE_URL`       | `https://tecno-api-6z50.onrender.com` | Base de l'API partenaire                                          |
+| `TECNO_PARTNER_TIMEOUT_MS`     | `15000`                               | Timeout par requete                                              |
+| `TECNO_SYNC_ENABLED`           | `true`                                | Mettre `false` pour desactiver la synchro sans retirer la cle    |
+| `TECNO_SYNC_INTERVAL_MS`       | `900000`                              | Cadence incrementale (15 min)                                    |
+| `TECNO_SYNC_FULL_INTERVAL_MS`  | `86400000`                            | Cadence du resync plein (24 h)                                   |
+
+## Module TECNO — synchro des numeros partenaire
+
+Le module TECNO importe automatiquement les **numeros de telephone** des clients
+depuis l'API « Tecno Ya Niongo » (`GET /partner/devices`, header `x-api-key`) et
+les stocke dans la Liste TECNO (`client_tecno`, `auto=true`, `source='partner'`).
+Ces numeros sont donc marques TECNO en permanence, comme les numeros saisis a la main.
+
+- **Amorcage** : au demarrage, resync plein si jamais synchronise, sinon incremental.
+- **Incremental** (15 min) : `updatedSince` = horodatage de la derniere execution
+  reussie (l'API ne renvoyant pas de date). Resync plein quotidien pour rattraper
+  les ecarts.
+- **Dedup + idempotence** : numeros dedupliques (Set) puis UPSERT sur le numero —
+  deux executions ne creent pas de doublons.
+- **Erreurs** : `401` (cle invalide) et `503` (acces non configure cote Tecno) sont
+  loggees en **alerte** sans retry ; reseau/`5xx` font l'objet de retries backoff.
+  Le dernier etat est expose a l'UI Admin (page TECNO) et via `GET /tecno/sync-status`.
+
+Note : retirer un numero partenaire de la Liste TECNO le supprime, mais un **resync
+plein** le reajoutera s'il est toujours present chez Tecno (comportement attendu).
+
+### Declenchement manuel
+
+```
+# incremental (defaut)
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:3001/tecno/sync
+# resync plein
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" "http://localhost:3001/tecno/sync?mode=full"
+# statut
+curl -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:3001/tecno/sync-status
+```
+
+Appel direct a l'API partenaire (verification d'acces) :
+
+```
+curl -H "x-api-key: $TECNO_PARTNER_API_KEY" "https://tecno-api-6z50.onrender.com/partner/devices?take=200&skip=0"
+```
+
+> **Securite** : les numeros sont des donnees personnelles. Restreindre l'acces a la
+> table `client_tecno`, activer le chiffrement au repos cote hebergeur Postgres, et ne
+> jamais journaliser la cle partenaire.
+
 ## Configuration des providers AI
 
 Pas d'interface : on insere directement en SQL.

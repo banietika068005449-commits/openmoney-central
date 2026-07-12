@@ -83,6 +83,11 @@ async function ensureSmsAuxTables() {
     )
   `);
   await pool.query(`ALTER TABLE client_tecno ADD COLUMN IF NOT EXISTS auto BOOLEAN NOT NULL DEFAULT false`);
+  // Origine du numero force : 'manual' (saisi via le module TECNO) ou 'partner'
+  // (importe automatiquement depuis l'API Tecno Ya Niongo). fetched_at = horodatage
+  // du dernier import partenaire.
+  await pool.query(`ALTER TABLE client_tecno ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'`);
+  await pool.query(`ALTER TABLE client_tecno ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ`);
   smsAuxTablesReady = true;
 }
 
@@ -386,9 +391,55 @@ function normalizeTecnoPhone(phone) {
 export async function listForcedTecno() {
   await ensureSmsAuxTables();
   const { rows } = await pool.query(
-    `SELECT phone_number, updated_at FROM client_tecno WHERE auto = true ORDER BY updated_at DESC`,
+    `SELECT phone_number, updated_at, source, fetched_at
+       FROM client_tecno WHERE auto = true ORDER BY updated_at DESC`,
   );
   return { items: rows };
+}
+
+/** Compte les numeros forces par origine (pour le panneau de statut de synchro). */
+export async function countForcedTecnoBySource() {
+  await ensureSmsAuxTables();
+  const { rows } = await pool.query(
+    `SELECT source, COUNT(*)::int AS n FROM client_tecno WHERE auto = true GROUP BY source`,
+  );
+  const counts = { manual: 0, partner: 0, total: 0 };
+  for (const r of rows) {
+    if (r.source === 'partner') counts.partner = r.n;
+    else counts.manual += r.n;
+    counts.total += r.n;
+  }
+  return counts;
+}
+
+/**
+ * UPSERT groupe et idempotent d'une liste de numeros importes du partenaire Tecno.
+ * Normalise + filtre (6..15 chiffres) + dedup via Set avant insertion.
+ * Un numero deja present (meme 'manual') devient 'partner' et reste auto=true.
+ * @param {string[]} phoneNumbers
+ * @returns {Promise<{ upserted: number }>}
+ */
+export async function upsertPartnerTecnoNumbers(phoneNumbers) {
+  await ensureSmsAuxTables();
+  const unique = new Set();
+  for (const raw of phoneNumbers || []) {
+    const n = normalizeTecnoPhone(raw);
+    if (n.length >= 6 && n.length <= 15) unique.add(n);
+  }
+  const list = [...unique];
+  if (list.length === 0) return { upserted: 0 };
+
+  const { rowCount } = await pool.query(
+    `INSERT INTO client_tecno (phone_number, auto, source, fetched_at, updated_at)
+     SELECT n, true, 'partner', NOW(), NOW() FROM unnest($1::text[]) AS n
+     ON CONFLICT (phone_number) DO UPDATE SET
+       auto       = true,
+       source     = 'partner',
+       fetched_at = NOW(),
+       updated_at = NOW()`,
+    [list],
+  );
+  return { upserted: rowCount };
 }
 
 export async function addForcedTecno(phone) {
