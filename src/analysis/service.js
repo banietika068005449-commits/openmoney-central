@@ -1,16 +1,21 @@
 import { insertAnalysis, getPendingSmsIds } from '../db.js';
 import { agentsArchiving } from '../repos/agentArchive.repo.js';
 import { createNotification } from '../repos/agentNotification.repo.js';
+import { transactionMessage } from '../repos/agentNotifyText.js';
 
 /**
  * Notifie (hors transaction, best-effort) les agents ayant archive le numero
  * concerne par une nouvelle transaction analysee. Ne doit jamais faire echouer
  * l'analyse : toute erreur est journalisee et avalee.
  */
-async function notifyArchivingAgents({ smsId, phoneNumber, transactionId }, logger) {
+async function notifyArchivingAgents({ smsId, phoneNumber, transactionId, amount }, logger) {
   try {
     if (!phoneNumber) return;
     const agentIds = await agentsArchiving(phoneNumber);
+    const message = transactionMessage(
+      { id: smsId, phone_number: phoneNumber, amount, transaction_id: transactionId },
+      'nouvelle transaction recue',
+    );
     for (const agentId of agentIds) {
       await createNotification({
         agentId,
@@ -18,7 +23,7 @@ async function notifyArchivingAgents({ smsId, phoneNumber, transactionId }, logg
         phoneNumber,
         smsId,
         transactionId,
-        message: `Nouvelle transaction sur le numero archive ${phoneNumber}.`,
+        message,
       });
     }
   } catch (err) {
@@ -109,7 +114,7 @@ export class SmsAnalysisService {
       // Post-commit : alerter les agents ayant archive ce numero (best-effort).
       if (finalStatus === 'analyzed') {
         await notifyArchivingAgents(
-          { smsId, phoneNumber: result.phoneNumber, transactionId: result.transactionId },
+          { smsId, phoneNumber: result.phoneNumber, transactionId: result.transactionId, amount: result.amount },
           this.logger,
         );
       }

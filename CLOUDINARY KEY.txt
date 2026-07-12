@@ -1,0 +1,5 @@
+	
+API Secret=Gkh9IkHqu5grAj6LJZUWZgE4qcs
+API Key=245688668978463
+Key Name=Openmney
+Cloud name: donetvtvq

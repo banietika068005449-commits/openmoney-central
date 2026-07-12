@@ -1,15 +1,16 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdminToken } from '../middleware/admin.js';
-import { listPendingFlags, ackSmsFlag, setSmsAdminProcessingStatus, clearSmsFlag } from '../../repos/sms.repo.js';
+import { listPendingFlags, ackSmsFlag, setSmsAdminProcessingStatus, clearSmsFlag, getSmsById } from '../../repos/sms.repo.js';
 import { createNotification } from '../../repos/agentNotification.repo.js';
+import { transactionMessage } from '../../repos/agentNotifyText.js';
 
 const ackSchema = z.object({ action: z.enum(['seen', 'searching', 'waiting']) });
 
-const MESSAGES = {
-  seen: "L'administrateur a vu votre signalement.",
-  searching: 'Votre transaction signalee est en plein traitement.',
-  waiting: 'Votre signalement a ete mis en attente.',
+const ACTIONS = {
+  seen: 'vue par l\'administrateur',
+  searching: 'en plein traitement',
+  waiting: 'mise en attente',
 };
 
 export default function flagsRouter() {
@@ -38,13 +39,14 @@ export default function flagsRouter() {
       }
 
       if (flag.agent_id) {
+        const full = await getSmsById(req.params.id);
         await createNotification({
           agentId: flag.agent_id,
           type: 'flag_treated',
           phoneNumber: flag.phone_number,
           smsId: Number(req.params.id),
           transactionId: flag.transaction_id,
-          message: MESSAGES[action],
+          message: transactionMessage(full, ACTIONS[action]),
         });
       }
 

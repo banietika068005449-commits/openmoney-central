@@ -269,8 +269,10 @@ CREATE TABLE IF NOT EXISTS agent (
     is_active     BOOLEAN     NOT NULL DEFAULT true,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_login_at TIMESTAMPTZ
+    last_login_at TIMESTAMPTZ,
+    photo_url     TEXT
 );
+ALTER TABLE agent ADD COLUMN IF NOT EXISTS photo_url TEXT;
 
 -- Sessions agent (miroir de admin_session). Token opaque hache en SHA-256.
 CREATE TABLE IF NOT EXISTS agent_session (

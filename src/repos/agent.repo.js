@@ -9,7 +9,7 @@ const PIN_DIGEST = 'sha256';
 
 const PUBLIC_COLUMNS = `
   id, name, city, phone, must_set_pin, is_active,
-  created_at, updated_at, last_login_at
+  created_at, updated_at, last_login_at, photo_url
 `;
 
 function hashPin(pin, saltHex) {
@@ -25,12 +25,12 @@ export function verifyAgentPin(agent, pin) {
   return computed.length === expected.length && timingSafeEqual(computed, expected);
 }
 
-export async function createAgent({ name, city, phone }) {
+export async function createAgent({ name, city, phone, photoUrl }) {
   const { rows } = await pool.query(
-    `INSERT INTO agent (name, city, phone)
-     VALUES ($1, $2, $3)
+    `INSERT INTO agent (name, city, phone, photo_url)
+     VALUES ($1, $2, $3, $4)
      RETURNING ${PUBLIC_COLUMNS}`,
-    [String(name).trim(), String(city).trim(), String(phone).trim()],
+    [String(name).trim(), String(city).trim(), String(phone).trim(), photoUrl?.trim() || null],
   );
   return rows[0];
 }
@@ -99,19 +99,21 @@ export async function setAgentActive(agentId, isActive) {
   return rows[0] ?? null;
 }
 
-export async function updateAgent(agentId, { name, city, phone }) {
+export async function updateAgent(agentId, { name, city, phone, photoUrl }) {
   const { rows } = await pool.query(
     `UPDATE agent
      SET name = COALESCE($1, name),
          city = COALESCE($2, city),
          phone = COALESCE($3, phone),
+         photo_url = COALESCE($4, photo_url),
          updated_at = now()
-     WHERE id = $4
+     WHERE id = $5
      RETURNING ${PUBLIC_COLUMNS}`,
     [
       name != null ? String(name).trim() : null,
       city != null ? String(city).trim() : null,
       phone != null ? String(phone).trim() : null,
+      photoUrl != null ? String(photoUrl).trim() : null,
       agentId,
     ],
   );

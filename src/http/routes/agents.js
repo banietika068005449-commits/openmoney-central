@@ -13,12 +13,14 @@ const createSchema = z.object({
   name: z.string().trim().min(1).max(120),
   city: z.string().trim().min(1).max(120),
   phone: z.string().trim().min(4).max(20),
+  photoUrl: z.string().trim().url().max(2000).optional(),
 });
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   city: z.string().trim().min(1).max(120).optional(),
   phone: z.string().trim().min(4).max(20).optional(),
+  photoUrl: z.string().trim().url().max(2000).optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -48,7 +50,7 @@ router.patch('/:id', async (req, res, next) => {
       }
     }
     let agent = null;
-    if (body.name != null || body.city != null || body.phone != null) {
+    if (body.name != null || body.city != null || body.phone != null || body.photoUrl != null) {
       agent = await updateAgent(req.params.id, body);
     }
     if (body.isActive != null) {

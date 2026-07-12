@@ -20,9 +20,11 @@ export async function ensureAgentSchema() {
       is_active     BOOLEAN     NOT NULL DEFAULT true,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-      last_login_at TIMESTAMPTZ
+      last_login_at TIMESTAMPTZ,
+      photo_url     TEXT
     )
   `);
+  await pool.query(`ALTER TABLE agent ADD COLUMN IF NOT EXISTS photo_url TEXT`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_session (

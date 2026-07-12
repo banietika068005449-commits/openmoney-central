@@ -4,19 +4,20 @@ import { requireAdminToken } from '../middleware/admin.js';
 import { setSmsAdminProcessingStatus, clearSmsFlag, getSmsById } from '../../repos/sms.repo.js';
 import { createNotification } from '../../repos/agentNotification.repo.js';
 import { agentsArchiving } from '../../repos/agentArchive.repo.js';
+import { transactionMessage } from '../../repos/agentNotifyText.js';
 
 const adminStatusSchema = z.object({
   status: z.enum(['ANALYSIS', 'UNLOCKED', 'TREATED', 'PROBLEM', 'NOUVEAU', 'EN_ATTENTE']),
 });
 
-// Message de notification agent selon le nouveau statut d'un numero archive.
-const STATUS_MESSAGES = {
-  NOUVEAU: 'Nouveau client : transaction recue.',
-  EN_ATTENTE: 'Votre transaction a ete mise en attente.',
-  UNLOCKED: 'Votre transaction est en plein traitement.',
-  TREATED: 'Votre transaction a ete traitee.',
-  PROBLEM: 'Votre transaction est signalee comme probleme.',
-  ANALYSIS: 'Votre transaction est en cours d\'analyse.',
+// Action decrite selon le nouveau statut (le prefixe numero+montant+ref est ajoute).
+const STATUS_ACTIONS = {
+  NOUVEAU: 'nouveau client, transaction recue',
+  EN_ATTENTE: 'mise en attente',
+  UNLOCKED: 'en plein traitement',
+  TREATED: 'traitee',
+  PROBLEM: 'signalee comme probleme',
+  ANALYSIS: 'en cours d\'analyse',
 };
 
 export default function transactionsRouter() {
@@ -36,6 +37,7 @@ export default function transactionsRouter() {
         const phone = full?.phone_number;
         if (phone) {
           const agentIds = await agentsArchiving(phone);
+          const action = STATUS_ACTIONS[status] || 'statut mis a jour';
           for (const agentId of agentIds) {
             await createNotification({
               agentId,
@@ -43,7 +45,7 @@ export default function transactionsRouter() {
               phoneNumber: phone,
               smsId: updated.id,
               transactionId: full?.transaction_id,
-              message: STATUS_MESSAGES[status] || 'Statut de votre transaction mis a jour.',
+              message: transactionMessage(full, action),
             });
           }
         }
