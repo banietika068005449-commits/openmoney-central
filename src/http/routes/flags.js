@@ -5,12 +5,11 @@ import { listPendingFlags, ackSmsFlag, setSmsAdminProcessingStatus, clearSmsFlag
 import { createNotification } from '../../repos/agentNotification.repo.js';
 import { transactionMessage } from '../../repos/agentNotifyText.js';
 
-const ackSchema = z.object({ action: z.enum(['seen', 'searching', 'waiting']) });
+const ackSchema = z.object({ action: z.enum(['seen', 'searching']) });
 
 const ACTIONS = {
   seen: 'vue par l\'administrateur',
   searching: 'debloquee',
-  waiting: 'mise en attente',
 };
 
 export default function flagsRouter() {
@@ -24,7 +23,7 @@ export default function flagsRouter() {
     } catch (e) { next(e); }
   });
 
-  // Prise en compte d'un signalement : Vu / Rechercher (traitement) / En attente.
+  // Prise en compte d'un signalement : Vu / Rechercher (debloque + recherche).
   router.post('/:id/ack', async (req, res, next) => {
     try {
       const { action } = ackSchema.parse(req.body);
@@ -34,8 +33,6 @@ export default function flagsRouter() {
       if (action === 'searching') {
         await setSmsAdminProcessingStatus(req.params.id, 'UNLOCKED');
         await clearSmsFlag(req.params.id);
-      } else if (action === 'waiting') {
-        await setSmsAdminProcessingStatus(req.params.id, 'EN_ATTENTE');
       }
 
       if (flag.agent_id) {

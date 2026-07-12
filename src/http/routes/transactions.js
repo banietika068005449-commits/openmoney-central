@@ -6,14 +6,14 @@ import { createNotification } from '../../repos/agentNotification.repo.js';
 import { agentsArchiving } from '../../repos/agentArchive.repo.js';
 import { transactionMessage } from '../../repos/agentNotifyText.js';
 
+// 5 statuts canoniques (EN_ATTENTE retire).
 const adminStatusSchema = z.object({
-  status: z.enum(['ANALYSIS', 'UNLOCKED', 'TREATED', 'PROBLEM', 'NOUVEAU', 'EN_ATTENTE']),
+  status: z.enum(['ANALYSIS', 'UNLOCKED', 'TREATED', 'PROBLEM', 'NOUVEAU']),
 });
 
 // Action decrite selon le nouveau statut (le prefixe numero+montant+ref est ajoute).
 const STATUS_ACTIONS = {
   NOUVEAU: 'nouveau client, transaction recue',
-  EN_ATTENTE: 'mise en attente',
   UNLOCKED: 'debloquee',
   TREATED: 'traitee',
   PROBLEM: 'signalee comme probleme',
