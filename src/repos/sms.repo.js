@@ -210,10 +210,46 @@ export async function setSmsStatus(id, status) {
 
 export async function setSmsAdminProcessingStatus(id, adminProcessingStatus) {
   const { rows } = await pool.query(
-    `UPDATE sms SET admin_processing_status = $1 WHERE id = $2 RETURNING id, sender, content, received_at, smsc_ts, status, admin_processing_status`,
+    `UPDATE sms SET admin_processing_status = $1 WHERE id = $2
+     RETURNING id, sender, content, received_at, smsc_ts, status, admin_processing_status,
+               flagged_by_agent_id`,
     [adminProcessingStatus, id],
   );
   return rows[0] ?? null;
+}
+
+/**
+ * Signalement d'une transaction par un agent : passe le SMS en PROBLEM (rouge
+ * cote admin) et memorise l'agent signalant pour le notifier au traitement.
+ * Renvoie { id, phone_number, transaction_id } ou null si SMS introuvable.
+ */
+export async function flagSmsByAgent(id, agentId) {
+  const { rows } = await pool.query(
+    `UPDATE sms s
+     SET admin_processing_status = 'PROBLEM',
+         flagged_by_agent_id = $2,
+         flagged_at = NOW()
+     FROM sms_analysis a
+     WHERE s.id = $1 AND a.sms_id = s.id
+     RETURNING s.id, a.phone_number, a.transaction_id`,
+    [id, agentId],
+  );
+  if (rows[0]) return rows[0];
+  // SMS sans ligne d'analyse : on marque quand meme le signalement.
+  const { rows: bare } = await pool.query(
+    `UPDATE sms SET admin_processing_status = 'PROBLEM', flagged_by_agent_id = $2, flagged_at = NOW()
+     WHERE id = $1 RETURNING id`,
+    [id, agentId],
+  );
+  return bare[0] ? { id: bare[0].id, phone_number: null, transaction_id: null } : null;
+}
+
+/** Efface le marqueur de signalement (apres notification de l'agent). */
+export async function clearSmsFlag(id) {
+  await pool.query(
+    `UPDATE sms SET flagged_by_agent_id = NULL, flagged_at = NULL WHERE id = $1`,
+    [id],
+  );
 }
 
 export async function setSmsImei(id, imei) {

@@ -1,4 +1,30 @@
 import { insertAnalysis, getPendingSmsIds } from '../db.js';
+import { agentsArchiving } from '../repos/agentArchive.repo.js';
+import { createNotification } from '../repos/agentNotification.repo.js';
+
+/**
+ * Notifie (hors transaction, best-effort) les agents ayant archive le numero
+ * concerne par une nouvelle transaction analysee. Ne doit jamais faire echouer
+ * l'analyse : toute erreur est journalisee et avalee.
+ */
+async function notifyArchivingAgents({ smsId, phoneNumber, transactionId }, logger) {
+  try {
+    if (!phoneNumber) return;
+    const agentIds = await agentsArchiving(phoneNumber);
+    for (const agentId of agentIds) {
+      await createNotification({
+        agentId,
+        type: 'archived_new_transaction',
+        phoneNumber,
+        smsId,
+        transactionId,
+        message: `Nouvelle transaction sur le numero archive ${phoneNumber}.`,
+      });
+    }
+  } catch (err) {
+    logger?.error?.(`[analysis] notification archive impossible (sms_id=${smsId}) : ${err.message}`);
+  }
+}
 
 // Orchestration de l'analyse SMS.
 // - analyzeOne(smsId)  : analyse transactionnelle d'un SMS (utilise inline ou en rattrapage)
@@ -79,6 +105,15 @@ export class SmsAnalysisService {
 
       await client.query('COMMIT');
       this.logger.info?.(`[analysis] sms_id=${smsId} provider=${result.provider} type=${result.smsType} status=${finalStatus} confidence=${result.confidence}`);
+
+      // Post-commit : alerter les agents ayant archive ce numero (best-effort).
+      if (finalStatus === 'analyzed') {
+        await notifyArchivingAgents(
+          { smsId, phoneNumber: result.phoneNumber, transactionId: result.transactionId },
+          this.logger,
+        );
+      }
+
       return result;
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }

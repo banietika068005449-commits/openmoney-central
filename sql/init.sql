@@ -245,3 +245,73 @@ CREATE TABLE IF NOT EXISTS push_subscription (
 
 CREATE INDEX IF NOT EXISTS idx_push_subscription_active ON push_subscription (is_active);
 CREATE INDEX IF NOT EXISTS idx_push_subscription_user_id ON push_subscription (user_id);
+
+-- ===========================================================================
+-- Module AGENT : application mobile des agents (verification des paiements).
+-- ===========================================================================
+
+-- Un agent est cree par l'admin (name, city, phone). Le PIN est choisi par
+-- l'agent lui-meme a la 1ere connexion (must_set_pin=true tant qu'il est vide).
+--   pin_hash / pin_salt : PBKDF2 (hex). NULL tant que le PIN n'est pas defini.
+--   L'admin peut reinitialiser le PIN (efface hash/sel + must_set_pin=true).
+CREATE TABLE IF NOT EXISTS agent (
+    id            BIGSERIAL   PRIMARY KEY,
+    name          TEXT        NOT NULL,
+    city          TEXT        NOT NULL,
+    phone         TEXT        NOT NULL UNIQUE,
+    pin_hash      TEXT,
+    pin_salt      TEXT,
+    must_set_pin  BOOLEAN     NOT NULL DEFAULT true,
+    is_active     BOOLEAN     NOT NULL DEFAULT true,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login_at TIMESTAMPTZ
+);
+
+-- Sessions agent (miroir de admin_session). Token opaque hache en SHA-256.
+CREATE TABLE IF NOT EXISTS agent_session (
+    id               BIGSERIAL   PRIMARY KEY,
+    agent_id         BIGINT      NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
+    token_hash       CHAR(64)    NOT NULL UNIQUE,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_activity_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at       TIMESTAMPTZ NOT NULL,
+    revoked_at       TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_session_token_hash ON agent_session (token_hash);
+CREATE INDEX IF NOT EXISTS idx_agent_session_expires_at ON agent_session (expires_at);
+CREATE INDEX IF NOT EXISTS idx_agent_session_agent_id   ON agent_session (agent_id);
+
+-- Numeros archives par un agent (acces rapide + declencheur de notification
+-- sur nouvelle transaction).
+CREATE TABLE IF NOT EXISTS agent_archive (
+    id           BIGSERIAL   PRIMARY KEY,
+    agent_id     BIGINT      NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
+    phone_number TEXT        NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (agent_id, phone_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_archive_phone ON agent_archive (phone_number);
+
+-- Notifications agent (alimentees par polling cote app).
+--   type : 'flag_treated' | 'archived_new_transaction'
+CREATE TABLE IF NOT EXISTS agent_notification (
+    id             BIGSERIAL   PRIMARY KEY,
+    agent_id       BIGINT      NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
+    type           TEXT        NOT NULL,
+    phone_number   TEXT,
+    sms_id         BIGINT,
+    transaction_id TEXT,
+    message        TEXT        NOT NULL DEFAULT '',
+    is_read        BOOLEAN     NOT NULL DEFAULT false,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_notification_agent ON agent_notification (agent_id, is_read);
+
+-- Signalement d'une transaction par un agent : on retient qui a signale pour
+-- pouvoir le notifier quand l'admin traite le SMS (admin_processing_status).
+ALTER TABLE sms ADD COLUMN IF NOT EXISTS flagged_by_agent_id BIGINT;
+ALTER TABLE sms ADD COLUMN IF NOT EXISTS flagged_at TIMESTAMPTZ;
