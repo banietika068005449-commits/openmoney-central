@@ -2,6 +2,10 @@ DO $$ BEGIN
   CREATE TYPE admin_processing_status_enum AS ENUM ('ANALYSIS', 'UNLOCKED', 'TREATED', 'PROBLEM');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+-- Statuts additionnels (module agent) : NOUVEAU (badge « Reçu ») + EN_ATTENTE.
+ALTER TYPE admin_processing_status_enum ADD VALUE IF NOT EXISTS 'NOUVEAU';
+ALTER TYPE admin_processing_status_enum ADD VALUE IF NOT EXISTS 'EN_ATTENTE';
+
 CREATE TABLE IF NOT EXISTS sms (
   id          BIGSERIAL PRIMARY KEY,
   sender      TEXT        NOT NULL,
@@ -311,7 +315,12 @@ CREATE TABLE IF NOT EXISTS agent_notification (
 
 CREATE INDEX IF NOT EXISTS idx_agent_notification_agent ON agent_notification (agent_id, is_read);
 
+-- Un numero ne peut etre archive que par UN seul agent (unicite globale).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_archive_phone ON agent_archive (phone_number);
+
 -- Signalement d'une transaction par un agent : on retient qui a signale pour
 -- pouvoir le notifier quand l'admin traite le SMS (admin_processing_status).
+-- flag_ack_at : horodatage de prise en compte cote admin (alerte flottante).
 ALTER TABLE sms ADD COLUMN IF NOT EXISTS flagged_by_agent_id BIGINT;
 ALTER TABLE sms ADD COLUMN IF NOT EXISTS flagged_at TIMESTAMPTZ;
+ALTER TABLE sms ADD COLUMN IF NOT EXISTS flag_ack_at TIMESTAMPTZ;

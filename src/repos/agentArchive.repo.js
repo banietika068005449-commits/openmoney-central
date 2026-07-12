@@ -13,17 +13,35 @@ export async function listArchives(agentId) {
   return rows;
 }
 
+/**
+ * Archive un numero pour l'agent. Un numero ne peut etre archive que par UN
+ * seul agent (unicite globale).
+ * @returns {Promise<{ ok:true, archive } | { ok:false, reason:'invalid'|'taken', byAgentId?:number }>}
+ */
 export async function addArchive(agentId, phone) {
   const phoneNumber = normalizePhone(phone);
-  if (!phoneNumber) return null;
+  if (!phoneNumber) return { ok: false, reason: 'invalid' };
+
+  // Deja archive ?
+  const existing = await pool.query(
+    `SELECT id, agent_id, created_at FROM agent_archive WHERE phone_number = $1`,
+    [phoneNumber],
+  );
+  if (existing.rows[0]) {
+    const row = existing.rows[0];
+    if (String(row.agent_id) === String(agentId)) {
+      return { ok: true, archive: { id: row.id, phone_number: phoneNumber, created_at: row.created_at } };
+    }
+    return { ok: false, reason: 'taken', byAgentId: row.agent_id };
+  }
+
   const { rows } = await pool.query(
     `INSERT INTO agent_archive (agent_id, phone_number)
      VALUES ($1, $2)
-     ON CONFLICT (agent_id, phone_number) DO UPDATE SET phone_number = EXCLUDED.phone_number
      RETURNING id, phone_number, created_at`,
     [agentId, phoneNumber],
   );
-  return rows[0] ?? null;
+  return { ok: true, archive: rows[0] };
 }
 
 export async function removeArchive(agentId, phone) {

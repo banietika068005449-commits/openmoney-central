@@ -14,6 +14,7 @@ import pushRouter from '../routes/push.js';
 import agentAuthRouter from './routes/agentAuth.js';
 import agentRouter from './routes/agent.js';
 import agentsRouter from './routes/agents.js';
+import flagsRouter from './routes/flags.js';
 
 /**
  * Cree l'app Express. analysisService est injecte pour la route /sms/:id/reanalyze.
@@ -56,6 +57,8 @@ export function createApp({ analysisService } = {}) {
   app.use('/agent', agentRouter());
   // Administration des agents (protege par le token admin, consomme par l'Admin web).
   app.use('/agents', agentsRouter);
+  // Alertes de signalement (Admin web, protege par le token admin).
+  app.use('/flags', flagsRouter());
 
   app.use((err, _req, res, _next) => {
     console.error('[http] erreur :', err.message);

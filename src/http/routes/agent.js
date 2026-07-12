@@ -1,12 +1,15 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAgentToken } from '../middleware/agent.js';
-import { listSms, flagSmsByAgent } from '../../repos/sms.repo.js';
+import { listSms, flagSmsByAgent, listArchivedTransactions } from '../../repos/sms.repo.js';
 import { getAgentById } from '../../repos/agent.repo.js';
 import { listArchives, addArchive, removeArchive } from '../../repos/agentArchive.repo.js';
 import {
   listNotifications, unreadCount, markRead, markAllRead,
 } from '../../repos/agentNotification.repo.js';
+import { PushNotificationService } from '../../services/pushNotification.service.js';
+
+const pushService = new PushNotificationService();
 
 // Projection sure des colonnes de transaction exposees a l'agent (pas de contenu
 // SMS brut, pas d'IMEI, etc. : uniquement ce qui sert a verifier un paiement).
@@ -70,7 +73,26 @@ export default function agentRouter() {
     try {
       const flagged = await flagSmsByAgent(req.params.id, req.agentAuth.id);
       if (!flagged) return res.status(404).json({ error: 'Transaction introuvable' });
+      // Alerte push navigateur cote admin (best-effort, ne bloque pas la reponse).
+      pushService.sendToAll({
+        title: 'Transaction signalee',
+        body: `Un agent a signale la transaction ${flagged.phone_number || `#${flagged.id}`}.`,
+        tag: 'openmoney-agent-flag',
+        url: '/',
+      }).catch((e) => console.error('[agent] push admin flag impossible :', e.message));
       res.json({ ok: true, id: flagged.id });
+    } catch (e) { next(e); }
+  });
+
+  // Toutes les transactions des numeros archives par l'agent (+ total).
+  router.get('/archived-transactions', async (req, res, next) => {
+    try {
+      const q = z.object({
+        limit: z.coerce.number().int().positive().max(500).default(200),
+        offset: z.coerce.number().int().nonnegative().default(0),
+      }).parse(req.query);
+      const r = await listArchivedTransactions(req.agentAuth.id, q);
+      res.json({ items: r.items.map(toAgentTransaction), total: r.total });
     } catch (e) { next(e); }
   });
 
@@ -84,9 +106,10 @@ export default function agentRouter() {
   router.post('/archives', async (req, res, next) => {
     try {
       const body = z.object({ phone: z.string().trim().min(4).max(20) }).parse(req.body);
-      const created = await addArchive(req.agentAuth.id, body.phone);
-      if (!created) return res.status(400).json({ error: 'INVALID_PHONE' });
-      res.status(201).json(created);
+      const result = await addArchive(req.agentAuth.id, body.phone);
+      if (result.ok) return res.status(201).json(result.archive);
+      if (result.reason === 'taken') return res.status(409).json({ error: 'ALREADY_ARCHIVED' });
+      return res.status(400).json({ error: 'INVALID_PHONE' });
     } catch (e) { next(e); }
   });
 

@@ -67,6 +67,14 @@ export async function ensureAgentSchema() {
 
   await pool.query(`ALTER TABLE sms ADD COLUMN IF NOT EXISTS flagged_by_agent_id BIGINT`);
   await pool.query(`ALTER TABLE sms ADD COLUMN IF NOT EXISTS flagged_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE sms ADD COLUMN IF NOT EXISTS flag_ack_at TIMESTAMPTZ`);
+
+  // Un numero ne peut etre archive que par un seul agent (unicite globale).
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_archive_phone ON agent_archive (phone_number)`);
+
+  // Statuts additionnels (ALTER TYPE hors transaction, idempotent).
+  await pool.query(`ALTER TYPE admin_processing_status_enum ADD VALUE IF NOT EXISTS 'NOUVEAU'`);
+  await pool.query(`ALTER TYPE admin_processing_status_enum ADD VALUE IF NOT EXISTS 'EN_ATTENTE'`);
 
   ready = true;
   console.log('[agent] schema verifie/applique');

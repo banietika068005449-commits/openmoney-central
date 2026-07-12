@@ -200,6 +200,27 @@ export async function listSms(f) {
   };
 }
 
+/**
+ * Toutes les transactions dont le numero est archive par cet agent (jointure
+ * sms + sms_analysis), triees recentes d'abord. Reutilise COLUMNS/BASE_SELECT.
+ * Renvoie { items, total }.
+ */
+export async function listArchivedTransactions(agentId, { limit = 200, offset = 0 } = {}) {
+  await ensureSmsAuxTables();
+  const where = `WHERE a.phone_number IN (SELECT phone_number FROM agent_archive WHERE agent_id = $1)`;
+  const totalQ = await pool.query(
+    `SELECT COUNT(*)::int AS n ${BASE_SELECT} ${where}`,
+    [agentId],
+  );
+  const itemsQ = await pool.query(
+    `SELECT ${COLUMNS} ${BASE_SELECT} ${where}
+     ORDER BY s.received_at DESC
+     LIMIT $2 OFFSET $3`,
+    [agentId, limit, offset],
+  );
+  return { items: itemsQ.rows, total: totalQ.rows[0].n };
+}
+
 export async function setSmsStatus(id, status) {
   const { rows } = await pool.query(
     `UPDATE sms SET status = $1 WHERE id = $2 RETURNING id, sender, content, received_at, smsc_ts, status, admin_processing_status`,
@@ -224,20 +245,22 @@ export async function setSmsAdminProcessingStatus(id, adminProcessingStatus) {
  * Renvoie { id, phone_number, transaction_id } ou null si SMS introuvable.
  */
 export async function flagSmsByAgent(id, agentId) {
+  // Re-signalement autorise : on remet flag_ack_at a NULL pour re-declencher
+  // l'alerte flottante cote admin.
   const { rows } = await pool.query(
     `UPDATE sms s
      SET admin_processing_status = 'PROBLEM',
          flagged_by_agent_id = $2,
-         flagged_at = NOW()
+         flagged_at = NOW(),
+         flag_ack_at = NULL
      FROM sms_analysis a
      WHERE s.id = $1 AND a.sms_id = s.id
      RETURNING s.id, a.phone_number, a.transaction_id`,
     [id, agentId],
   );
   if (rows[0]) return rows[0];
-  // SMS sans ligne d'analyse : on marque quand meme le signalement.
   const { rows: bare } = await pool.query(
-    `UPDATE sms SET admin_processing_status = 'PROBLEM', flagged_by_agent_id = $2, flagged_at = NOW()
+    `UPDATE sms SET admin_processing_status = 'PROBLEM', flagged_by_agent_id = $2, flagged_at = NOW(), flag_ack_at = NULL
      WHERE id = $1 RETURNING id`,
     [id, agentId],
   );
@@ -250,6 +273,43 @@ export async function clearSmsFlag(id) {
     `UPDATE sms SET flagged_by_agent_id = NULL, flagged_at = NULL WHERE id = $1`,
     [id],
   );
+}
+
+/** Signalements en attente de prise en compte admin (alerte flottante). */
+export async function listPendingFlags() {
+  await ensureSmsAuxTables();
+  const { rows } = await pool.query(
+    `SELECT s.id, s.flagged_at, s.flagged_by_agent_id AS agent_id,
+            ag.name AS agent_name,
+            a.phone_number, a.amount, a.transaction_id
+     FROM sms s
+     LEFT JOIN sms_analysis a ON a.sms_id = s.id
+     LEFT JOIN agent ag ON ag.id = s.flagged_by_agent_id
+     WHERE s.flagged_by_agent_id IS NOT NULL AND s.flag_ack_at IS NULL
+     ORDER BY s.flagged_at ASC
+     LIMIT 20`,
+  );
+  return rows;
+}
+
+/** Marque un signalement comme pris en compte. Renvoie { agent_id, phone_number, transaction_id }. */
+export async function ackSmsFlag(id) {
+  const { rows } = await pool.query(
+    `UPDATE sms s
+     SET flag_ack_at = NOW()
+     FROM sms_analysis a
+     WHERE s.id = $1 AND a.sms_id = s.id AND s.flagged_by_agent_id IS NOT NULL
+     RETURNING s.flagged_by_agent_id AS agent_id, a.phone_number, a.transaction_id`,
+    [id],
+  );
+  if (rows[0]) return rows[0];
+  const { rows: bare } = await pool.query(
+    `UPDATE sms SET flag_ack_at = NOW()
+     WHERE id = $1 AND flagged_by_agent_id IS NOT NULL
+     RETURNING flagged_by_agent_id AS agent_id`,
+    [id],
+  );
+  return bare[0] ? { agent_id: bare[0].agent_id, phone_number: null, transaction_id: null } : null;
 }
 
 export async function setSmsImei(id, imei) {
