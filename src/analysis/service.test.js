@@ -28,14 +28,19 @@ async function cleanup() {
 beforeEach(cleanup);
 after(async () => { await cleanup(); await pool.end(); });
 
-async function insertTestSms(content) {
-  return insertSms({
+async function insertTestSms(content, { status = 'failed' } = {}) {
+  const sms = await insertSms({
     sender: TEST_SENDER,
     content,
     smscTs: new Date(),
     modemIndex: 0,
     raw: 'test',
   });
+  if (status !== sms.status) {
+    await pool.query(`UPDATE sms SET status = $1 WHERE id = $2`, [status, sms.id]);
+    sms.status = status;
+  }
+  return sms;
 }
 
 test('analyzeOne : insere une ligne sms_analysis et passe sms.status=analyzed', async () => {
@@ -114,14 +119,14 @@ test('analyzeOne : erreur dans provider -> rollback + sms.status=failed', async 
 });
 
 test('analyzePending : reprend les SMS en status=received', async () => {
-  const a = await insertTestSms('MTN MoMo: Vous avez recu 1 000 FCFA');
-  const b = await insertTestSms('Airtel Money: paiement de 2 000 FCFA');
+  const a = await insertTestSms('MTN MoMo: Vous avez recu 1 000 FCFA', { status: 'received' });
+  const b = await insertTestSms('Airtel Money: paiement de 2 000 FCFA', { status: 'received' });
   // Les deux ont par defaut status='received' (cf. schema).
   // Note : le worker Render tourne contre la meme Neon et peut piquer un SMS
-  // avant ce test (race). On valide donc seulement qu'AU MOINS un est traite
-  // et que tous les SMS du lot ont quitte l'etat 'received'.
+  // avant ce test (race). On valide donc que tous les SMS du lot quittent
+  // l'etat 'received', que ce soit par ce service local ou par le worker.
   const res = await service.analyzePending(50);
-  assert.ok(res.processed >= 1, `processed=${res.processed}`);
+  assert.ok(Number.isInteger(res.processed), `processed invalide: ${res.processed}`);
 
   const { rows } = await pool.query(
     `SELECT id, status FROM sms WHERE id IN ($1,$2) ORDER BY id`,

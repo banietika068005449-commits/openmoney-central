@@ -11,7 +11,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "migrate": "node src/migrate.js",
-    "test": "node --test src/analysis/providers/extractors.test.js src/analysis/service.test.js src/services/recaptcha.service.test.js src/services/tecnoPartner.client.test.js"
+    "test": "node --test src/analysis/providers/extractors.test.js src/analysis/service.test.js src/repos/sms.repo.test.js src/services/recaptcha.service.test.js src/services/tecnoPartner.client.test.js"
   },
   "dependencies": {
     "cors": "^2.8.6",

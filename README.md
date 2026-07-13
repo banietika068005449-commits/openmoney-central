@@ -24,6 +24,21 @@ A chaque tick :
 
 `SKIP LOCKED` rend le worker safe en cas de multiples instances.
 
+## Recherche Admin
+
+Le dashboard Admin utilise `GET /sms` comme source complete des trames recues.
+Cette route part de la table brute `sms` avec une jointure gauche vers
+`sms_analysis`, afin qu'une trame recue par l'API reste visible meme si son
+analyse est absente ou incomplete.
+
+- `q`, `phone` et `transactionId` cherchent aussi dans `sms.sender`,
+  `sms.content`, `sms.point_de_vente` et `sms.uuid`.
+- Les filtres qui dependent de champs calcules (`amount`, `operatorPrefix`,
+  `imei`, `tecno`) restent limites aux lignes qui possedent les donnees
+  d'analyse correspondantes.
+- Les routes `/api/analysis/summary` et `/api/analysis/sms` restent centrees sur
+  les transactions analysees, pour conserver la compatibilite mobile/support.
+
 ## Prerequis
 - Node.js 20+
 - Une base Neon Postgres (la meme pour A et B)

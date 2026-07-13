@@ -101,6 +101,12 @@ export async function listSms(f) {
   await ensureSmsAuxTables();
   const where = [];
   const params = [];
+  const addParam = (value) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const digitsOnly = (value) => String(value || '').replace(/\D/g, '');
+
   if (f.status)   { params.push(f.status);            where.push(`s.status = $${params.length}`); }
   if (f.operator) { params.push(f.operator);          where.push(`a.operator = $${params.length}`); }
   if (f.operatorPrefix === 'MTN') {
@@ -108,8 +114,41 @@ export async function listSms(f) {
   } else if (f.operatorPrefix === 'AIRTEL') {
     where.push(`(a.phone_number LIKE '05%' OR a.phone_number LIKE '04%')`);
   }
-  if (f.phone)    { params.push(`%${f.phone}%`);      where.push(`a.phone_number ILIKE $${params.length}`); }
-  if (f.transactionId) { params.push(f.transactionId); where.push(`a.transaction_id = $${params.length}`); }
+  if (f.phone) {
+    const rawPhone = String(f.phone || '').trim();
+    if (rawPhone) {
+      const textParam = addParam(`%${rawPhone}%`);
+      const parts = [
+        `a.phone_number ILIKE ${textParam}`,
+        `s.sender ILIKE ${textParam}`,
+        `s.content ILIKE ${textParam}`,
+      ];
+      const phoneDigits = digitsOnly(rawPhone);
+      if (phoneDigits) {
+        const digitParam = addParam(`%${phoneDigits}%`);
+        parts.push(
+          `regexp_replace(COALESCE(a.phone_number, ''), '[^0-9]', '', 'g') LIKE ${digitParam}`,
+          `regexp_replace(COALESCE(s.sender, ''), '[^0-9]', '', 'g') LIKE ${digitParam}`,
+          `regexp_replace(COALESCE(s.content, ''), '[^0-9]', '', 'g') LIKE ${digitParam}`,
+        );
+      }
+      where.push(`(${parts.join(' OR ')})`);
+    }
+  }
+  if (f.transactionId) {
+    const transactionId = String(f.transactionId || '').trim();
+    if (transactionId) {
+      const exactParam = addParam(transactionId);
+      const textParam = addParam(`%${transactionId}%`);
+      where.push(`(
+        a.transaction_id = ${exactParam}
+        OR s.uuid::text = ${exactParam}
+        OR s.content ILIKE ${textParam}
+        OR s.sender ILIKE ${textParam}
+        OR a.reference ILIKE ${textParam}
+      )`);
+    }
+  }
   if (f.imei)     { params.push(`%${f.imei}%`);       where.push(`COALESCE(a.imei, ci.imei) ILIKE $${params.length}`); }
   if (f.hasImei)  { where.push(`(COALESCE(a.imei, ci.imei) IS NOT NULL AND TRIM(COALESCE(a.imei, ci.imei)) <> '')`); }
   if (f.hasNote)  { where.push(`(sn.note IS NOT NULL AND TRIM(sn.note) <> '')`); }
@@ -118,14 +157,29 @@ export async function listSms(f) {
   if (f.amount) { params.push(f.amount);              where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
   if (f.amountRule) { params.push(f.amountRule);      where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
   if (f.q) {
-    params.push(`%${f.q}%`);
-    where.push(`(
-      s.sender ILIKE $${params.length}
-      OR s.content ILIKE $${params.length}
-      OR a.phone_number ILIKE $${params.length}
-      OR a.transaction_id ILIKE $${params.length}
-      OR a.reference ILIKE $${params.length}
-    )`);
+    const q = String(f.q || '').trim();
+    if (q) {
+      const textParam = addParam(`%${q}%`);
+      const parts = [
+        `s.sender ILIKE ${textParam}`,
+        `s.content ILIKE ${textParam}`,
+        `s.point_de_vente ILIKE ${textParam}`,
+        `s.uuid::text ILIKE ${textParam}`,
+        `a.phone_number ILIKE ${textParam}`,
+        `a.transaction_id ILIKE ${textParam}`,
+        `a.reference ILIKE ${textParam}`,
+      ];
+      const qDigits = digitsOnly(q);
+      if (qDigits) {
+        const digitParam = addParam(`%${qDigits}%`);
+        parts.push(
+          `regexp_replace(COALESCE(a.phone_number, ''), '[^0-9]', '', 'g') LIKE ${digitParam}`,
+          `regexp_replace(COALESCE(s.sender, ''), '[^0-9]', '', 'g') LIKE ${digitParam}`,
+          `regexp_replace(COALESCE(s.content, ''), '[^0-9]', '', 'g') LIKE ${digitParam}`,
+        );
+      }
+      where.push(`(${parts.join(' OR ')})`);
+    }
   }
   if (f.period === 'days') {
     params.push(new Date(Date.now() - 24 * 60 * 60 * 1000));
