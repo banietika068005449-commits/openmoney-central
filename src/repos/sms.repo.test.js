@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert';
 import { randomUUID } from 'node:crypto';
 
 import { pool } from '../db.js';
-import { listSms } from './sms.repo.js';
+import { getSmsById, listSms, setSmsAdminProcessingStatus } from './sms.repo.js';
 
 const TEST_SENDER = '+99ADMINFILTER';
 const TEST_PDV = 'ADMIN_FILTER_TEST';
@@ -118,4 +118,44 @@ test('listSms: operatorPrefix reste limite aux donnees analysees', async () => {
 
   assert.equal(hasSms(result, sms.id), false);
   assert.equal(result.total, 0);
+});
+
+test('listSms: flagged ne renvoie que les transactions signalees par agent', async () => {
+  const marker = `ADMIN_FILTER_FLAGGED_${Date.now()}`;
+  const flaggedSms = await insertTestSms({ content: `${marker} transaction signalee` });
+  const normalSms = await insertTestSms({ content: `${marker} transaction normale` });
+  await insertAnalysis(flaggedSms.id, {
+    phoneNumber: '066777001',
+    transactionId: `TX-FLAGGED-${marker}`,
+  });
+  await insertAnalysis(normalSms.id, {
+    phoneNumber: '066777002',
+    transactionId: `TX-NORMAL-${marker}`,
+  });
+  await pool.query(
+    `UPDATE sms SET flagged_by_agent_id = $1, flagged_at = NOW() WHERE id = $2`,
+    [999, flaggedSms.id],
+  );
+
+  const result = await listSms({ limit: 10, offset: 0, q: marker, flagged: true, sort: 'recent' });
+
+  assert.ok(hasSms(result, flaggedSms.id), 'la transaction signalee doit etre presente');
+  assert.equal(hasSms(result, normalSms.id), false, 'la transaction non signalee doit etre exclue');
+});
+
+test('setSmsAdminProcessingStatus: efface le clignotement d une transaction signalee', async () => {
+  const marker = `ADMIN_FILTER_CLEAR_FLAG_${Date.now()}`;
+  const sms = await insertTestSms({ content: `${marker} transaction signalee puis traitee` });
+  await insertAnalysis(sms.id, { transactionId: `TX-CLEAR-FLAG-${marker}` });
+  await pool.query(
+    `UPDATE sms SET flagged_by_agent_id = $1, flagged_at = NOW(), flag_ack_at = NULL WHERE id = $2`,
+    [999, sms.id],
+  );
+
+  const updated = await setSmsAdminProcessingStatus(sms.id, 'TREATED');
+  const reloaded = await getSmsById(sms.id);
+
+  assert.equal(updated.flagged_by_agent_id, '999', 'l agent signalant reste disponible pour notification');
+  assert.equal(reloaded.admin_processing_status, 'TREATED');
+  assert.equal(reloaded.flagged, false, 'la transaction ne doit plus etre marquee signalee');
 });

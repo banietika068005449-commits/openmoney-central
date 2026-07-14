@@ -95,7 +95,7 @@ async function ensureSmsAuxTables() {
 /**
  * Liste paginee + filtres. Renvoie items + total.
  *
- * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, operatorPrefix?:'MTN'|'AIRTEL', phone?:string, transactionId?:string, imei?:string, hasNote?:boolean, tecno?:'only'|'hide', amount?:number, amountRule?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
+ * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, operatorPrefix?:'MTN'|'AIRTEL', phone?:string, transactionId?:string, imei?:string, hasNote?:boolean, flagged?:boolean, tecno?:'only'|'hide', amount?:number, amountRule?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
  */
 export async function listSms(f) {
   await ensureSmsAuxTables();
@@ -152,6 +152,7 @@ export async function listSms(f) {
   if (f.imei)     { params.push(`%${f.imei}%`);       where.push(`COALESCE(a.imei, ci.imei) ILIKE $${params.length}`); }
   if (f.hasImei)  { where.push(`(COALESCE(a.imei, ci.imei) IS NOT NULL AND TRIM(COALESCE(a.imei, ci.imei)) <> '')`); }
   if (f.hasNote)  { where.push(`(sn.note IS NOT NULL AND TRIM(sn.note) <> '')`); }
+  if (f.flagged)  { where.push(`s.flagged_by_agent_id IS NOT NULL`); }
   if (f.tecno === 'only') where.push(`ct.phone_number IS NOT NULL`);
   else if (f.tecno === 'hide') where.push(`ct.phone_number IS NULL`);
   if (f.amount) { params.push(f.amount);              where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
@@ -296,9 +297,19 @@ export async function setSmsStatus(id, status) {
 
 export async function setSmsAdminProcessingStatus(id, adminProcessingStatus) {
   const { rows } = await pool.query(
-    `UPDATE sms SET admin_processing_status = $1 WHERE id = $2
-     RETURNING id, sender, content, received_at, smsc_ts, status, admin_processing_status,
-               flagged_by_agent_id`,
+    `WITH previous AS (
+       SELECT id, flagged_by_agent_id
+       FROM sms
+       WHERE id = $2
+     )
+     UPDATE sms s
+     SET admin_processing_status = $1,
+         flagged_by_agent_id = NULL,
+         flagged_at = NULL
+     FROM previous p
+     WHERE s.id = p.id
+     RETURNING s.id, s.sender, s.content, s.received_at, s.smsc_ts, s.status, s.admin_processing_status,
+               p.flagged_by_agent_id`,
     [adminProcessingStatus, id],
   );
   return rows[0] ?? null;

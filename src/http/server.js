@@ -15,6 +15,7 @@ import agentAuthRouter from './routes/agentAuth.js';
 import agentRouter from './routes/agent.js';
 import agentsRouter from './routes/agents.js';
 import flagsRouter from './routes/flags.js';
+import openchatRouter from './routes/openchat.js';
 
 /**
  * Cree l'app Express. analysisService est injecte pour la route /sms/:id/reanalyze.
@@ -57,6 +58,7 @@ export function createApp({ analysisService } = {}) {
   app.use('/agent', agentRouter());
   // Administration des agents (protege par le token admin, consomme par l'Admin web).
   app.use('/agents', agentsRouter);
+  app.use('/openchat', openchatRouter);
   // Alertes de signalement (Admin web, protege par le token admin).
   app.use('/flags', flagsRouter());
 

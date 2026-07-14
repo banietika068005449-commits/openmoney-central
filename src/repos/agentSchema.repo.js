@@ -67,6 +67,19 @@ export async function ensureAgentSchema() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_notification_agent ON agent_notification (agent_id, is_read)`);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_chat_message (
+      id          BIGSERIAL   PRIMARY KEY,
+      agent_id    BIGINT      NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
+      sender_type TEXT        NOT NULL CHECK (sender_type IN ('admin', 'agent')),
+      body        TEXT        NOT NULL,
+      read_at     TIMESTAMPTZ,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_chat_message_agent_id ON agent_chat_message (agent_id, id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_chat_message_unread ON agent_chat_message (agent_id, sender_type, read_at)`);
+
   await pool.query(`ALTER TABLE sms ADD COLUMN IF NOT EXISTS flagged_by_agent_id BIGINT`);
   await pool.query(`ALTER TABLE sms ADD COLUMN IF NOT EXISTS flagged_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE sms ADD COLUMN IF NOT EXISTS flag_ack_at TIMESTAMPTZ`);

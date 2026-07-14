@@ -7,6 +7,12 @@ import { listArchives, addArchive, removeArchive } from '../../repos/agentArchiv
 import {
   listNotifications, unreadCount, markRead, markAllRead,
 } from '../../repos/agentNotification.repo.js';
+import {
+  countOpenChatUnreadForAgent,
+  createOpenChatMessage,
+  listOpenChatMessages,
+  markOpenChatRead,
+} from '../../repos/agentChat.repo.js';
 import { PushNotificationService } from '../../services/pushNotification.service.js';
 
 const pushService = new PushNotificationService();
@@ -159,6 +165,42 @@ export default function agentRouter() {
     try {
       await markAllRead(req.agentAuth.id);
       res.status(204).end();
+    } catch (e) { next(e); }
+  });
+
+  const chatListSchema = z.object({
+    after: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().max(200).default(100),
+  });
+
+  const chatMessageSchema = z.object({
+    body: z.string().trim().min(1).max(2000),
+  });
+
+  router.get('/openchat/messages', async (req, res, next) => {
+    try {
+      const q = chatListSchema.parse(req.query);
+      res.json({ items: await listOpenChatMessages(req.agentAuth.id, q) });
+    } catch (e) { next(e); }
+  });
+
+  router.post('/openchat/messages', async (req, res, next) => {
+    try {
+      const body = chatMessageSchema.parse(req.body);
+      const message = await createOpenChatMessage(req.agentAuth.id, 'agent', body.body);
+      res.status(201).json(message);
+    } catch (e) { next(e); }
+  });
+
+  router.post('/openchat/read', async (req, res, next) => {
+    try {
+      res.json(await markOpenChatRead(req.agentAuth.id, 'agent'));
+    } catch (e) { next(e); }
+  });
+
+  router.get('/openchat/unread-count', async (req, res, next) => {
+    try {
+      res.json({ unread: await countOpenChatUnreadForAgent(req.agentAuth.id) });
     } catch (e) { next(e); }
   });
 

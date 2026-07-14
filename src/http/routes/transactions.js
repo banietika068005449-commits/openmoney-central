@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdminToken } from '../middleware/admin.js';
-import { setSmsAdminProcessingStatus, clearSmsFlag, getSmsById } from '../../repos/sms.repo.js';
+import { setSmsAdminProcessingStatus, getSmsById } from '../../repos/sms.repo.js';
 import { createNotification } from '../../repos/agentNotification.repo.js';
 import { agentsArchiving } from '../../repos/agentArchive.repo.js';
 import { transactionMessage } from '../../repos/agentNotifyText.js';
@@ -37,7 +37,8 @@ export default function transactionsRouter() {
         const notified = new Set();
 
         // Transaction signalee puis DEBLOQUEE par l'admin : notifier l'agent
-        // signalant (« le numero X a ete debloque ») et retirer le rouge (clear).
+        // signalant (« le numero X a ete debloque »). Le marqueur rouge est
+        // deja efface par setSmsAdminProcessingStatus pour tout changement de statut.
         if (updated.flagged_by_agent_id && status === 'UNLOCKED') {
           await createNotification({
             agentId: updated.flagged_by_agent_id,
@@ -48,7 +49,6 @@ export default function transactionsRouter() {
             message: transactionMessage(full, 'debloquee'),
           });
           notified.add(String(updated.flagged_by_agent_id));
-          await clearSmsFlag(updated.id);
         }
 
         // Notifier les agents ayant archive ce numero (tout changement de statut).

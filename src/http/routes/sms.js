@@ -24,6 +24,7 @@ export function smsRouter({ analysisService }) {
     imei:     z.string().trim().regex(/^\d{0,32}$/).optional(),
     hasImei:  z.coerce.boolean().optional(),
     hasNote:  z.coerce.boolean().optional(),
+    flagged:  z.coerce.boolean().optional(),
     tecno:    z.enum(['only', 'hide']).optional(),
     amount: z.coerce.number().int().positive().optional(),
     amountRule: z.coerce.number().int().positive().optional(),
