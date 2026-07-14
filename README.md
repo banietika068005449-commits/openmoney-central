@@ -65,7 +65,7 @@ npm start
 | variable                       | defaut                                | role                                                              |
 | ------------------------------ | ------------------------------------- | ---------------------------------------------------------------- |
 | `TECNO_PARTNER_API_KEY`        | (aucun)                               | Cle partenaire, envoyee en header `x-api-key`. **Secret** — jamais en dur, jamais loggee. Absente ⇒ synchro desactivee. |
-| `TECNO_PARTNER_BASE_URL`       | `https://tecno-api-6z50.onrender.com` | Base de l'API partenaire                                          |
+| `TECNO_PARTNER_BASE_URL`       | `https://api.tecno.ambitechdynamics.site` | Base de l'API partenaire                                      |
 | `TECNO_PARTNER_TIMEOUT_MS`     | `15000`                               | Timeout par requete                                              |
 | `TECNO_SYNC_ENABLED`           | `true`                                | Mettre `false` pour desactiver la synchro sans retirer la cle    |
 | `TECNO_SYNC_INTERVAL_MS`       | `900000`                              | Cadence incrementale (15 min)                                    |
@@ -105,7 +105,7 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:3001/tecno/sync-st
 Appel direct a l'API partenaire (verification d'acces) :
 
 ```
-curl -H "x-api-key: $TECNO_PARTNER_API_KEY" "https://tecno-api-6z50.onrender.com/partner/devices?take=200&skip=0"
+curl -H "x-api-key: $TECNO_PARTNER_API_KEY" "https://api.tecno.ambitechdynamics.site/partner/devices?take=200&skip=0"
 ```
 
 > **Securite** : les numeros sont des donnees personnelles. Restreindre l'acces a la

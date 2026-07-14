@@ -11,7 +11,7 @@
 //   - 503 -> ACCESS_NOT_CONFIGURED (pas de retry, alerter l'editeur) ;
 //   - autres 4xx -> CLIENT_ERROR (pas de retry, log + stop).
 
-const DEFAULT_BASE_URL = 'https://tecno-api-6z50.onrender.com';
+const DEFAULT_BASE_URL = 'https://api.tecno.ambitechdynamics.site';
 
 export class TecnoPartnerError extends Error {
   /**
