@@ -18,6 +18,13 @@ const RE_REFERENCE     = /\b(?:r[eé]f(?:[eé]rence)?|reference)\s*[:.\-#]?\s*([
 const RE_TRANSACTION   = /\b(?:transaction|trans|tx|tnx|id)\s*[:.\-#]?\s*([A-Z0-9]{4,})/i;
 const RE_CURRENCY      = /\b(FCFA|CFA|XAF|XOF)\b/i;
 
+// Transfert personne-a-personne : la mention "Message de l'expediteur" (message
+// personnel joint par l'emetteur) n'existe QUE dans un transfert entre
+// particuliers, jamais dans un depot de client au comptoir. Ces SMS ne sont pas
+// des depots OpenMoney et doivent etre exclus.
+// NB: garder ce marqueur synchronise avec Android SmsClassifier.RE_TRANSFERT_PERSO.
+const RE_TRANSFERT_PERSO = /message\s+de\s+l.{0,2}\s*exp[eé]diteur/i;
+
 export class BaseSmsAnalyzer {
   /** @type {string} */ name = 'base';
   /** @type {string|null} */ operator = null;
@@ -169,6 +176,16 @@ export class BaseSmsAnalyzer {
     if (/(?<![\p{L}])d[eé]p[oô]t(?![\p{L}])/iu.test(t) || /cash[\s\-]?in/i.test(t)) return 'cash_in';
     if (/(?<![\p{L}])(?:solde|balance|disponible)(?![\p{L}])/iu.test(t))       return 'balance_check';
     return 'unknown';
+  }
+
+  /**
+   * Vrai si le SMS est un transfert personne-a-personne (marque par un
+   * "Message de l'expediteur") : a exclure des depots.
+   * @param {string} content
+   * @returns {boolean}
+   */
+  isExclu(content) {
+    return RE_TRANSFERT_PERSO.test(String(content ?? ''));
   }
 
   /**

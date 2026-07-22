@@ -133,6 +133,22 @@ test('detectSmsType: unknown', () => {
   assert.equal(base.detectSmsType('Bonjour votre forfait internet expire demain.'), 'unknown');
 });
 
+// ---------- isExclu (transfert personne-a-personne) ----------
+
+test('isExclu: transfert avec "Message de l\'expediteur" -> exclu', () => {
+  assert.equal(
+    base.isExclu("vous avez recu 6000 FCFA de OPOU (242066773841) sur votre compte mobile Money le 202621153849. Message de l'expediteur: 1. ID: 8039839818"),
+    true,
+  );
+  // Apostrophe typographique et accent.
+  assert.equal(base.isExclu('Message de l’expéditeur: bonjour'), true);
+});
+
+test('isExclu: vrai depot au comptoir -> non exclu', () => {
+  assert.equal(base.isExclu('MTN MoMo: Vous avez recu 10 000 FCFA de +242066123456. Solde: 25 000 FCFA. Ref: ABC123'), false);
+  assert.equal(base.isExclu('Vous avez recu un depot de 5 000 FCFA sur votre compte'), false);
+});
+
 // ---------- detectCurrency ----------
 
 test('detectCurrency: FCFA explicite', () => {

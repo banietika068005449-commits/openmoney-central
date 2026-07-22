@@ -85,6 +85,37 @@ test('analyzeOne : SMS sans info utile -> status=ignored, analysis_status=ignore
   assert.equal(aRow.analysis_status, 'ignored');
 });
 
+test("analyzeOne : transfert personnel (\"Message de l'expediteur\") -> ignored", async () => {
+  const sms = await insertTestSms(
+    "MTN MoMo: vous avez recu 6000 FCFA de OPOU (242066773841) sur votre compte mobile Money. Message de l'expediteur: 1. ID: 8039839818",
+  );
+  const r = await service.analyzeOne(sms.id);
+
+  assert.equal(r.analysisStatus, 'ignored');
+  assert.equal(r.errorMessage, 'transfert_personnel');
+
+  const { rows: [smsRow] } = await pool.query(`SELECT status FROM sms WHERE id=$1`, [sms.id]);
+  assert.equal(smsRow.status, 'ignored');
+
+  const { rows: [aRow] } = await pool.query(
+    `SELECT analysis_status, error_message FROM sms_analysis WHERE sms_id=$1`,
+    [sms.id],
+  );
+  assert.equal(aRow.analysis_status, 'ignored');
+  assert.equal(aRow.error_message, 'transfert_personnel');
+});
+
+test('analyzeOne : vrai depot sans marqueur -> analyzed (non-regression)', async () => {
+  const sms = await insertTestSms('MTN MoMo: Vous avez recu 7 500 FCFA de +242066123456. Solde: 30 000 FCFA. Ref: DEP789');
+  const r = await service.analyzeOne(sms.id);
+
+  assert.equal(r.smsType, 'money_received');
+  assert.notEqual(r.analysisStatus, 'ignored');
+
+  const { rows: [smsRow] } = await pool.query(`SELECT status FROM sms WHERE id=$1`, [sms.id]);
+  assert.equal(smsRow.status, 'analyzed');
+});
+
 test('analyzeOne : idempotent (rejouer ne cree pas de doublon)', async () => {
   const sms = await insertTestSms('Airtel Money: Solde actuel: 75 000 FCFA');
   await service.analyzeOne(sms.id);

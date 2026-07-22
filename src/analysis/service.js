@@ -96,6 +96,13 @@ export class SmsAnalysisService {
       /** @type {import('./types.js').SmsAnalysisResult} */
       const result = await provider.analyze(sms.sender, sms.content);
 
+      // Transfert personne-a-personne ("Message de l'expediteur") : ce n'est
+      // jamais un depot au comptoir -> exclu, quel que soit le type detecte.
+      if (provider.isExclu(sms.content)) {
+        result.analysisStatus = 'ignored';
+        result.errorMessage = 'transfert_personnel';
+      }
+
       // OpenMoney ne traite que les depots d'argent. Tout SMS qui n'est pas
       // money_received est explicitement marque ignored, meme si le provider
       // l'a reconnu (ex. money_sent, payment, balance_check, notification...).
