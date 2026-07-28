@@ -16,6 +16,9 @@ import agentRouter from './routes/agent.js';
 import agentsRouter from './routes/agents.js';
 import flagsRouter from './routes/flags.js';
 import openchatRouter from './routes/openchat.js';
+import automaticSmsPartnerRouter from '../automaticSms/partnerRoutes.js';
+import automaticSmsMobileRouter from '../automaticSms/mobileRoutes.js';
+import automaticSmsAdminRouter from '../automaticSms/adminRoutes.js';
 
 /**
  * Cree l'app Express. analysisService est injecte pour la route /sms/:id/reanalyze.
@@ -34,7 +37,12 @@ export function createApp({ analysisService } = {}) {
     credentials: false,
   }));
 
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({
+    limit: '2mb',
+    verify: (req, _res, buffer) => {
+      req.rawBody = Buffer.from(buffer);
+    },
+  }));
   app.use(rateLimit({ windowMs: 60_000, max: 300 }));
 
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
@@ -61,6 +69,9 @@ export function createApp({ analysisService } = {}) {
   app.use('/openchat', openchatRouter);
   // Alertes de signalement (Admin web, protege par le token admin).
   app.use('/flags', flagsRouter());
+  app.use('/api/partner/v1/automatic-sms', automaticSmsPartnerRouter);
+  app.use('/api/mobile/v1/automatic-sms', automaticSmsMobileRouter);
+  app.use('/automatic-sms', automaticSmsAdminRouter);
 
   app.use((err, _req, res, _next) => {
     console.error('[http] erreur :', err.message);

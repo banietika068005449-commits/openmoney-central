@@ -1,0 +1,86 @@
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
+import { Router } from 'express';
+import { z } from 'zod';
+import { requireAdminToken } from '../http/middleware/admin.js';
+import {
+  assignDispatcher,
+  createDispatcher,
+  createTemplate,
+  dashboardState,
+  insertPartnerKey,
+  revokePartnerKey,
+  setPartnerActive,
+} from './repo.js';
+
+const router = Router();
+router.use(requireAdminToken);
+
+router.get('/', async (_req, res, next) => {
+  try { return res.json(await dashboardState()); } catch (error) { return next(error); }
+});
+
+router.post('/dispatchers', async (req, res, next) => {
+  try {
+    const { name } = z.object({ name: z.string().trim().min(2).max(100) }).parse(req.body);
+    return res.status(201).json(await createDispatcher(name));
+  } catch (error) { return next(error); }
+});
+
+router.put('/partners/:partnerId/dispatcher', async (req, res, next) => {
+  try {
+    const { dispatcherId } = z.object({ dispatcherId: z.string().uuid() }).parse(req.body);
+    return res.json(await assignDispatcher(req.params.partnerId, dispatcherId));
+  } catch (error) { return next(error); }
+});
+
+router.patch('/partners/:partnerId', async (req, res, next) => {
+  try {
+    const { active } = z.object({ active: z.boolean() }).parse(req.body);
+    const partner = await setPartnerActive(req.params.partnerId, active);
+    if (!partner) return res.status(404).json({ error: 'PARTNER_NOT_FOUND' });
+    return res.json(partner);
+  } catch (error) { return next(error); }
+});
+
+router.post('/partners/:partnerId/keys', async (req, res, next) => {
+  try {
+    const { label } = z.object({ label: z.string().trim().max(100).default('') }).parse(req.body);
+    const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+    const keyId = randomUUID();
+    const saved = await insertPartnerKey({
+      partnerId: req.params.partnerId,
+      keyId,
+      label,
+      publicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }),
+    });
+    return res.status(201).json({
+      ...saved,
+      privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+      warning: 'Cette cle privee ne sera plus jamais affichee.',
+    });
+  } catch (error) { return next(error); }
+});
+
+router.delete('/keys/:keyId', async (req, res, next) => {
+  try {
+    const revoked = await revokePartnerKey(req.params.keyId);
+    if (!revoked) return res.status(404).json({ error: 'KEY_NOT_FOUND' });
+    return res.json(revoked);
+  } catch (error) { return next(error); }
+});
+
+router.post('/templates', async (req, res, next) => {
+  try {
+    const data = z.object({
+      id: z.string().regex(/^[a-z0-9_]{3,120}$/),
+      body: z.string().min(1).max(918),
+      variableSchema: z.record(z.string(), z.object({
+        required: z.boolean().default(false),
+        maxLength: z.number().int().min(1).max(500).default(200),
+      })).default({}),
+    }).parse(req.body);
+    return res.status(201).json(await createTemplate(data));
+  } catch (error) { return next(error); }
+});
+
+export default router;

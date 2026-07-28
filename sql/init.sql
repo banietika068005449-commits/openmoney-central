@@ -26,7 +26,8 @@ CREATE INDEX IF NOT EXISTS idx_sms_status      ON sms (status);
 
 -- Colonnes pour l'ingestion HTTP depuis les points de vente.
 -- uuid       : identifiant emis par le PDV (utilise dans la reponse acceptes[]).
--- empreinte  : SHA-256 hex (64 chars) du triplet emetteur+message+horodatage, cle de dedup.
+-- empreinte  : SHA-256 hex (64 chars) de
+--              sender_normalise + NUL + timestamp_epoch_ms + NUL + contenu_normalise.
 -- point_de_vente : identifiant du PDV ayant ingere la ligne en premier.
 ALTER TABLE sms ADD COLUMN IF NOT EXISTS uuid           UUID;
 ALTER TABLE sms ADD COLUMN IF NOT EXISTS empreinte      CHAR(64);
