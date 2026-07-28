@@ -71,15 +71,21 @@ router.delete('/keys/:keyId', async (req, res, next) => {
 
 router.post('/templates', async (req, res, next) => {
   try {
-    const data = z.object({
+    const parsed = z.object({
       id: z.string().regex(/^[a-z0-9_]{3,120}$/),
       body: z.string().min(1).max(918),
       variableSchema: z.record(z.string(), z.object({
         required: z.boolean().default(false),
         maxLength: z.number().int().min(1).max(500).default(200),
       })).default({}),
-    }).parse(req.body);
-    return res.status(201).json(await createTemplate(data));
+    }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'TEMPLATE_INVALID',
+        details: parsed.error.flatten(),
+      });
+    }
+    return res.status(201).json(await createTemplate(parsed.data));
   } catch (error) { return next(error); }
 });
 
