@@ -309,3 +309,14 @@ export async function createTemplate({ id, body, variableSchema }) {
   );
   return rows[0];
 }
+
+export async function deactivateTemplate(templateId) {
+  const { rows } = await pool.query(
+    `UPDATE automatic_sms_template
+     SET is_active=false
+     WHERE id=$1 AND is_active=true
+     RETURNING id,version,is_active`,
+    [templateId],
+  );
+  return rows;
+}

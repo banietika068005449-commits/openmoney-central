@@ -7,6 +7,7 @@ import {
   createDispatcher,
   createTemplate,
   dashboardState,
+  deactivateTemplate,
   insertPartnerKey,
   revokePartnerKey,
   setPartnerActive,
@@ -86,6 +87,23 @@ router.post('/templates', async (req, res, next) => {
       });
     }
     return res.status(201).json(await createTemplate(parsed.data));
+  } catch (error) { return next(error); }
+});
+
+router.delete('/templates/:templateId', async (req, res, next) => {
+  try {
+    const templateId = z.string().regex(/^[a-z0-9_]{3,120}$/).safeParse(req.params.templateId);
+    if (!templateId.success) {
+      return res.status(400).json({ error: 'TEMPLATE_ID_INVALID' });
+    }
+    const versions = await deactivateTemplate(templateId.data);
+    if (versions.length === 0) {
+      return res.status(404).json({ error: 'TEMPLATE_NOT_FOUND' });
+    }
+    return res.json({
+      id: templateId.data,
+      deactivatedVersions: versions.map((item) => item.version),
+    });
   } catch (error) { return next(error); }
 });
 
