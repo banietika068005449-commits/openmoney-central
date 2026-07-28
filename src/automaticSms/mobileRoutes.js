@@ -101,8 +101,8 @@ router.post('/events', async (req, res, next) => {
       })).min(1).max(100),
     }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'EVENTS_INVALID' });
-    const accepted = await appendEvents(req.dispatcher.id, parsed.data.events);
-    return res.json({ accepted });
+    const acceptedEventIds = await appendEvents(req.dispatcher.id, parsed.data.events);
+    return res.json({ accepted: acceptedEventIds.length, acceptedEventIds });
   } catch (error) {
     return next(error);
   }

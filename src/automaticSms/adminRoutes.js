@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { requireAdminToken } from '../http/middleware/admin.js';
 import {
   assignDispatcher,
+  addOptOut,
+  allowPartnerTemplate,
   createDispatcher,
   createPartner,
   createTemplate,
@@ -13,8 +15,10 @@ import {
   deactivateTemplate,
   insertPartnerKey,
   revokePartnerKey,
+  removeOptOut,
   setPartnerActive,
 } from './repo.js';
+import { normalizeCongoPhone } from './phone.js';
 
 const router = Router();
 router.use(requireAdminToken);
@@ -67,6 +71,36 @@ router.put('/partners/:partnerId/dispatcher', async (req, res, next) => {
   try {
     const { dispatcherId } = z.object({ dispatcherId: z.string().uuid() }).parse(req.body);
     return res.json(await assignDispatcher(req.params.partnerId, dispatcherId));
+  } catch (error) { return next(error); }
+});
+
+router.put('/partners/:partnerId/templates/:templateId', async (req, res, next) => {
+  try {
+    const allowed = await allowPartnerTemplate(req.params.partnerId, req.params.templateId);
+    if (!allowed) return res.status(404).json({ error: 'PARTNER_OR_TEMPLATE_NOT_FOUND' });
+    return res.json(allowed);
+  } catch (error) { return next(error); }
+});
+
+router.post('/opt-outs', async (req, res, next) => {
+  try {
+    const parsed = z.object({
+      phoneNumber: z.string().min(1).max(40),
+      source: z.string().trim().min(2).max(80).default('admin'),
+      reason: z.string().trim().max(200).optional(),
+    }).parse(req.body);
+    const phone = normalizeCongoPhone(parsed.phoneNumber);
+    if (!phone) return res.status(400).json({ error: 'PHONE_INVALID' });
+    return res.status(201).json(await addOptOut(phone, parsed.source, parsed.reason));
+  } catch (error) { return next(error); }
+});
+
+router.delete('/opt-outs/:phoneNumber', async (req, res, next) => {
+  try {
+    const phone = normalizeCongoPhone(req.params.phoneNumber);
+    if (!phone) return res.status(400).json({ error: 'PHONE_INVALID' });
+    if (!(await removeOptOut(phone))) return res.status(404).json({ error: 'OPT_OUT_NOT_FOUND' });
+    return res.status(204).end();
   } catch (error) { return next(error); }
 });
 

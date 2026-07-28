@@ -3,10 +3,12 @@ import { z } from 'zod';
 import { normalizeCongoPhone } from './phone.js';
 import { verifyPartnerSignature } from './signature.js';
 import {
-  activeTemplate,
+  auditIngress,
   consumeNonce,
   createDispatchRequest,
   findActivePartnerKey,
+  partnerTemplate,
+  recipientOptedOut,
 } from './repo.js';
 
 const router = Router();
@@ -18,6 +20,12 @@ const requestSchema = z.object({
   templateId: z.string().trim().min(1).max(120),
   phoneNumber: z.string().trim().min(1).max(40),
   variables: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
+  consent: z.object({
+    reference: z.string().trim().min(3).max(200),
+    capturedAt: z.string().datetime({ offset: true }),
+    source: z.enum(['tecno_contract', 'tecno_manual']),
+    version: z.string().trim().min(3).max(80),
+  }),
   scheduledAt: z.string().datetime({ offset: true }).optional(),
   expiresAt: z.string().datetime({ offset: true }),
 });
@@ -52,9 +60,20 @@ function renderTemplate(body, variables) {
 }
 
 router.post('/requests', async (req, res, next) => {
+  let audit = {
+    partnerId: String(req.body?.partnerId || ''),
+    keyId: header(req, 'X-OpenMoney-Key-Id'),
+    requestId: String(req.body?.requestId || ''),
+    campaignId: String(req.body?.campaignId || ''),
+    normalizedPhone: null,
+  };
+  const reject = async (status, error, extra = {}) => {
+    await auditIngress({ ...audit, outcome: error, httpStatus: status }).catch(() => {});
+    return res.status(status).json({ error, ...extra });
+  };
   try {
     const parsed = requestSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST', details: parsed.error.flatten() });
+    if (!parsed.success) return reject(400, 'INVALID_REQUEST', { details: parsed.error.flatten() });
     const body = parsed.data;
     const partnerId = header(req, 'X-OpenMoney-Partner-Id');
     const keyId = header(req, 'X-OpenMoney-Key-Id');
@@ -62,48 +81,57 @@ router.post('/requests', async (req, res, next) => {
     const nonce = header(req, 'X-OpenMoney-Nonce');
     const signature = header(req, 'X-OpenMoney-Signature');
     if (!partnerId || !keyId || !timestamp || !nonce || !signature) {
-      return res.status(401).json({ error: 'SIGNATURE_HEADERS_REQUIRED' });
+      return reject(401, 'SIGNATURE_HEADERS_REQUIRED');
     }
-    if (partnerId !== body.partnerId) return res.status(400).json({ error: 'PARTNER_MISMATCH' });
+    audit = { ...audit, partnerId, keyId };
+    if (partnerId !== body.partnerId) return reject(400, 'PARTNER_MISMATCH');
 
     const timestampMs = Number(timestamp) * 1000;
     if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > 5 * 60_000) {
-      return res.status(401).json({ error: 'TIMESTAMP_INVALID' });
+      return reject(401, 'TIMESTAMP_INVALID');
     }
     const expiresAt = new Date(body.expiresAt);
     const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : new Date();
-    if (expiresAt <= new Date() || expiresAt <= scheduledAt || expiresAt.getTime() > timestampMs + 7 * 86_400_000) {
-      return res.status(400).json({ error: 'EXPIRATION_INVALID' });
+    if (expiresAt <= new Date() || expiresAt <= scheduledAt ||
+        expiresAt.getTime() > scheduledAt.getTime() + 7 * 86_400_000 + 1_000) {
+      return reject(400, 'EXPIRATION_INVALID');
+    }
+    const capturedAt = new Date(body.consent.capturedAt);
+    if (capturedAt > new Date(timestampMs + 5 * 60_000) ||
+        capturedAt < new Date(timestampMs - 365 * 86_400_000)) {
+      return reject(400, 'CONSENT_INVALID');
     }
 
     const key = await findActivePartnerKey(partnerId, keyId);
     if (!key || !key.is_active || !key.partner_active) {
-      return res.status(401).json({ error: 'PARTNER_OR_KEY_INACTIVE' });
+      return reject(401, 'PARTNER_OR_KEY_INACTIVE');
     }
     const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body), 'utf8');
     const validSignature = verifyPartnerSignature({
       partnerId, keyId, timestamp, nonce, signature,
       rawBody, publicKeyPem: key.public_key_pem,
     });
-    if (!validSignature) return res.status(401).json({ error: 'SIGNATURE_INVALID' });
-    if (!(await consumeNonce(keyId, nonce))) return res.status(409).json({ error: 'NONCE_REPLAYED' });
+    if (!validSignature) return reject(401, 'SIGNATURE_INVALID');
+    if (!(await consumeNonce(keyId, nonce))) return reject(409, 'NONCE_REPLAYED');
 
     const normalizedPhone = normalizeCongoPhone(body.phoneNumber);
-    if (!normalizedPhone) return res.status(400).json({ error: 'PHONE_INVALID' });
-    const template = await activeTemplate(body.templateId);
-    if (!template) return res.status(400).json({ error: 'TEMPLATE_NOT_ALLOWED' });
+    audit.normalizedPhone = normalizedPhone;
+    if (!normalizedPhone) return reject(400, 'PHONE_INVALID');
+    if (await recipientOptedOut(normalizedPhone)) return reject(403, 'RECIPIENT_OPTED_OUT');
+    const template = await partnerTemplate(partnerId, body.templateId);
+    if (!template) return reject(400, 'TEMPLATE_NOT_ALLOWED');
     const variableError = validateVariables(template.variable_schema, body.variables);
-    if (variableError) return res.status(400).json({ error: variableError });
+    if (variableError) return reject(400, variableError);
     const openMoneyDownloadUrl = String(process.env.OPENMONEY_APP_DOWNLOAD_URL || '').trim();
     if (template.body.includes('{{openMoneyDownloadUrl}}') && !openMoneyDownloadUrl) {
-      return res.status(503).json({ error: 'DOWNLOAD_URL_NOT_CONFIGURED' });
+      return reject(503, 'DOWNLOAD_URL_NOT_CONFIGURED');
     }
     const renderedText = renderTemplate(template.body, {
       ...body.variables,
       openMoneyDownloadUrl,
     });
     if (!renderedText.trim() || renderedText.length > 918) {
-      return res.status(400).json({ error: 'MESSAGE_TOO_LONG' });
+      return reject(400, 'MESSAGE_TOO_LONG');
     }
 
     const result = await createDispatchRequest({
@@ -121,9 +149,11 @@ router.post('/requests', async (req, res, next) => {
       nonce,
     });
     if (result.existing && !result.duplicateRecipient && result.item.raw_body !== rawBody.toString('utf8')) {
-      return res.status(409).json({ error: 'REQUEST_ID_CONFLICT' });
+      return reject(409, 'REQUEST_ID_CONFLICT');
     }
-    return res.status(result.existing ? 200 : 202).json({
+    const responseStatus = result.existing ? 200 : 202;
+    await auditIngress({ ...audit, outcome: result.duplicateRecipient ? 'DUPLICATE_RECIPIENT' : 'ACCEPTED', httpStatus: responseStatus });
+    return res.status(responseStatus).json({
       id: result.item.id,
       requestId: result.item.request_id,
       campaignId: result.item.campaign_id,

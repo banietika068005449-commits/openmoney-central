@@ -51,6 +51,19 @@ export async function ensureAutomaticSmsSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY(id, version)
     );
+    CREATE TABLE IF NOT EXISTS automatic_sms_partner_template (
+      partner_id TEXT NOT NULL REFERENCES automatic_sms_partner(id) ON DELETE CASCADE,
+      template_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY(partner_id, template_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS automatic_sms_opt_out (
+      normalized_phone TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      reason TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
 
     CREATE TABLE IF NOT EXISTS automatic_sms_nonce (
       key_id TEXT NOT NULL REFERENCES automatic_sms_partner_key(id) ON DELETE CASCADE,
@@ -87,6 +100,14 @@ export async function ensureAutomaticSmsSchema() {
       UNIQUE(partner_id, request_id),
       UNIQUE(partner_id, campaign_id, normalized_phone)
     );
+    ALTER TABLE automatic_sms_request
+      ADD COLUMN IF NOT EXISTS consent_reference TEXT;
+    ALTER TABLE automatic_sms_request
+      ADD COLUMN IF NOT EXISTS consent_captured_at TIMESTAMPTZ;
+    ALTER TABLE automatic_sms_request
+      ADD COLUMN IF NOT EXISTS consent_source TEXT;
+    ALTER TABLE automatic_sms_request
+      ADD COLUMN IF NOT EXISTS consent_version TEXT;
     CREATE INDEX IF NOT EXISTS idx_automatic_sms_request_claim
       ON automatic_sms_request(dispatcher_id, delivered_to_device_at, created_at);
     CREATE INDEX IF NOT EXISTS idx_automatic_sms_request_status
@@ -104,6 +125,20 @@ export async function ensureAutomaticSmsSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_automatic_sms_event_request
       ON automatic_sms_event(request_id, occurred_at);
+
+    CREATE TABLE IF NOT EXISTS automatic_sms_ingress_audit (
+      id BIGSERIAL PRIMARY KEY,
+      partner_id TEXT,
+      key_id TEXT,
+      request_id TEXT,
+      campaign_id TEXT,
+      phone_hash CHAR(64),
+      outcome TEXT NOT NULL,
+      http_status INTEGER NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_automatic_sms_ingress_audit_partner
+      ON automatic_sms_ingress_audit(partner_id, created_at DESC);
   `);
 
   await pool.query(

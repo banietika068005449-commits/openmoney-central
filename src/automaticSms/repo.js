@@ -33,6 +33,43 @@ export async function activeTemplate(templateId) {
   return rows[0] ?? null;
 }
 
+export async function partnerTemplate(partnerId, templateId) {
+  const { rows } = await pool.query(
+    `SELECT t.*
+     FROM automatic_sms_partner_template a
+     JOIN automatic_sms_template t ON t.id=a.template_id
+     WHERE a.partner_id=$1 AND a.template_id=$2 AND t.is_active=true
+     ORDER BY t.version DESC LIMIT 1`,
+    [partnerId, templateId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function recipientOptedOut(normalizedPhone) {
+  const { rowCount } = await pool.query(
+    `SELECT 1 FROM automatic_sms_opt_out WHERE normalized_phone=$1`,
+    [normalizedPhone],
+  );
+  return rowCount > 0;
+}
+
+export async function auditIngress(data) {
+  await pool.query(
+    `INSERT INTO automatic_sms_ingress_audit(
+       partner_id,key_id,request_id,campaign_id,phone_hash,outcome,http_status
+     ) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+    [
+      data.partnerId || null,
+      data.keyId || null,
+      data.requestId || null,
+      data.campaignId || null,
+      data.normalizedPhone ? sha256(data.normalizedPhone) : null,
+      data.outcome,
+      data.httpStatus,
+    ],
+  );
+}
+
 export async function createDispatchRequest(data) {
   const client = await pool.connect();
   try {
@@ -56,18 +93,22 @@ export async function createDispatchRequest(data) {
         `INSERT INTO automatic_sms_request(
            id, partner_id, partner_key_id, request_id, campaign_id, dispatcher_id,
            template_id, template_version, template_body, variables, rendered_text,
-           normalized_phone, scheduled_at, expires_at, raw_body, signature,
-           signature_timestamp, signature_nonce, status, status_reason
+         normalized_phone, scheduled_at, expires_at, raw_body, signature,
+           signature_timestamp, signature_nonce, status, status_reason,
+           consent_reference, consent_captured_at, consent_source, consent_version
          ) VALUES(
            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-           CASE WHEN $6::text IS NULL THEN 'BLOCKED' ELSE 'PENDING' END,
+           CASE WHEN $6::text IS NULL THEN 'WAITING_DISPATCHER' ELSE 'PENDING' END,
            CASE WHEN $6::text IS NULL THEN 'DISPATCHER_NOT_ASSIGNED' ELSE NULL END
+           ,$19,$20,$21,$22
          ) RETURNING *`,
         [
           id, data.partnerId, data.keyId, data.requestId, data.campaignId, dispatcherId,
           data.templateId, data.templateVersion, data.templateBody, data.variables,
           data.renderedText, data.normalizedPhone, data.scheduledAt, data.expiresAt,
           data.rawBody, data.signature, data.timestamp, data.nonce,
+          data.consent.reference, data.consent.capturedAt,
+          data.consent.source, data.consent.version,
         ],
       );
       await client.query('COMMIT');
@@ -147,7 +188,18 @@ export async function authorizeSend(requestId, dispatcherId) {
 
 export async function appendEvents(dispatcherId, events) {
   const client = await pool.connect();
-  let accepted = 0;
+  const acceptedEventIds = [];
+  const rank = {
+    WAITING_ADVANCED_MODE: 10,
+    PENDING: 20,
+    FAILED_RETRYABLE: 25,
+    PROCESSING: 30,
+    SENT: 40,
+    DELIVERED: 50,
+    FAILED_FINAL: 50,
+    BLOCKED: 50,
+    CANCELLED: 50,
+  };
   try {
     await client.query('BEGIN');
     for (const event of events) {
@@ -164,25 +216,38 @@ export async function appendEvents(dispatcherId, events) {
         ],
       );
       if (inserted.rowCount) {
-        accepted += 1;
-        await client.query(
-          `UPDATE automatic_sms_request r SET
-             status=CASE WHEN p.is_active AND k.is_active THEN $2 ELSE 'BLOCKED' END,
-             status_reason=CASE
-               WHEN NOT p.is_active THEN 'PARTNER_REVOKED'
-               WHEN NOT k.is_active THEN 'KEY_REVOKED'
-               ELSE $3
-             END,
-             updated_at=now()
-           FROM automatic_sms_partner p, automatic_sms_partner_key k
-           WHERE r.id=$1 AND r.dispatcher_id=$4
-             AND p.id=r.partner_id AND k.id=r.partner_key_id`,
-          [event.requestId, event.status, event.reason ?? null, dispatcherId],
+        acceptedEventIds.push(event.eventId);
+        const current = await client.query(
+          `SELECT r.status,p.is_active AS partner_active,k.is_active AS key_active
+           FROM automatic_sms_request r
+           JOIN automatic_sms_partner p ON p.id=r.partner_id
+           JOIN automatic_sms_partner_key k ON k.id=r.partner_key_id
+           WHERE r.id=$1 AND r.dispatcher_id=$2`,
+          [event.requestId, dispatcherId],
         );
+        const state = current.rows[0];
+        if (state) {
+          const forcedBlocked = !state.partner_active || !state.key_active;
+          const canAdvance = (rank[event.status] ?? 0) >= (rank[state.status] ?? 0);
+          if (forcedBlocked || canAdvance) {
+            await client.query(
+              `UPDATE automatic_sms_request SET status=$2,status_reason=$3,updated_at=now()
+               WHERE id=$1 AND dispatcher_id=$4`,
+              [
+                event.requestId,
+                forcedBlocked ? 'BLOCKED' : event.status,
+                !state.partner_active ? 'PARTNER_REVOKED'
+                  : !state.key_active ? 'KEY_REVOKED'
+                    : event.reason ?? null,
+                dispatcherId,
+              ],
+            );
+          }
+        }
       }
     }
     await client.query('COMMIT');
-    return accepted;
+    return acceptedEventIds;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -301,6 +366,16 @@ export async function enrollDispatcher(code, deviceId) {
 }
 
 export async function assignDispatcher(partnerId, dispatcherId) {
+  const ready = await pool.query(
+    `SELECT 1 FROM automatic_sms_dispatcher
+     WHERE id=$1 AND is_active=true AND device_id IS NOT NULL AND token_hash IS NOT NULL`,
+    [dispatcherId],
+  );
+  if (!ready.rowCount) {
+    const error = new Error('DISPATCHER_NOT_ENROLLED');
+    error.status = 409;
+    throw error;
+  }
   const { rows } = await pool.query(
     `INSERT INTO automatic_sms_partner_dispatcher(partner_id, dispatcher_id)
      VALUES($1,$2) ON CONFLICT(partner_id) DO UPDATE
@@ -311,7 +386,7 @@ export async function assignDispatcher(partnerId, dispatcherId) {
   await pool.query(
     `UPDATE automatic_sms_request SET dispatcher_id=$2, status='PENDING',
        status_reason=NULL, updated_at=now()
-     WHERE partner_id=$1 AND dispatcher_id IS NULL AND status='BLOCKED'
+     WHERE partner_id=$1 AND dispatcher_id IS NULL AND status='WAITING_DISPATCHER'
        AND status_reason='DISPATCHER_NOT_ASSIGNED'`,
     [partnerId, dispatcherId],
   );
@@ -334,13 +409,61 @@ export async function dashboardState() {
     pool.query(`SELECT * FROM automatic_sms_template ORDER BY id,version DESC`),
     pool.query(`SELECT * FROM automatic_sms_request ORDER BY created_at DESC LIMIT 200`),
   ]);
+  const readiness = partners.rows.map((partner) => {
+    const dispatcher = dispatchers.rows.find((item) => item.id === partner.dispatcher_id);
+    return {
+      partnerId: partner.id,
+      partnerActive: partner.is_active,
+      hasActiveKey: Number(partner.active_keys) > 0,
+      dispatcherAssigned: Boolean(partner.dispatcher_id),
+      dispatcherEnrolled: Boolean(dispatcher?.device_id),
+      dispatcherLastSeenAt: dispatcher?.last_seen_at ?? null,
+    };
+  });
   return {
     partners: partners.rows,
     keys: keys.rows,
     dispatchers: dispatchers.rows,
     templates: templates.rows,
     requests: requests.rows,
+    readiness,
   };
+}
+
+export async function allowPartnerTemplate(partnerId, templateId) {
+  const { rows } = await pool.query(
+    `INSERT INTO automatic_sms_partner_template(partner_id,template_id)
+     SELECT $1,$2
+     WHERE EXISTS(SELECT 1 FROM automatic_sms_partner WHERE id=$1 AND is_active=true)
+       AND EXISTS(SELECT 1 FROM automatic_sms_template WHERE id=$2 AND is_active=true)
+     ON CONFLICT DO NOTHING RETURNING *`,
+    [partnerId, templateId],
+  );
+  if (rows[0]) return rows[0];
+  const existing = await pool.query(
+    `SELECT * FROM automatic_sms_partner_template WHERE partner_id=$1 AND template_id=$2`,
+    [partnerId, templateId],
+  );
+  return existing.rows[0] ?? null;
+}
+
+export async function addOptOut(normalizedPhone, source, reason) {
+  const { rows } = await pool.query(
+    `INSERT INTO automatic_sms_opt_out(normalized_phone,source,reason)
+     VALUES($1,$2,$3)
+     ON CONFLICT(normalized_phone) DO UPDATE SET source=EXCLUDED.source,reason=EXCLUDED.reason
+     RETURNING *`,
+    [normalizedPhone, source, reason || null],
+  );
+  return rows[0];
+}
+
+export async function removeOptOut(normalizedPhone) {
+  const { rowCount } = await pool.query(
+    `DELETE FROM automatic_sms_opt_out WHERE normalized_phone=$1`,
+    [normalizedPhone],
+  );
+  return rowCount > 0;
 }
 
 export async function setPartnerActive(partnerId, active) {
