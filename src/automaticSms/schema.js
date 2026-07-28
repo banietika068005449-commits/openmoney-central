@@ -107,11 +107,6 @@ export async function ensureAutomaticSmsSchema() {
   `);
 
   await pool.query(
-    `INSERT INTO automatic_sms_partner(id, name)
-     VALUES ('tecno_ya_niongo', 'Tecno Ya Niongo')
-     ON CONFLICT (id) DO NOTHING`,
-  );
-  await pool.query(
     `INSERT INTO automatic_sms_template(id, version, body, variable_schema)
      VALUES (
        'payment_app_download_v1',

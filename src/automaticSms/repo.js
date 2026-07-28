@@ -203,6 +203,90 @@ export async function createDispatcher(name) {
   return { dispatcher: rows[0], enrollmentCode };
 }
 
+export async function deactivateDispatcher(dispatcherId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `UPDATE automatic_sms_dispatcher
+       SET is_active=false,updated_at=now()
+       WHERE id=$1 AND is_active=true
+       RETURNING id,name`,
+      [dispatcherId],
+    );
+    if (!rows[0]) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    await client.query(`DELETE FROM automatic_sms_partner_dispatcher WHERE dispatcher_id=$1`, [dispatcherId]);
+    await client.query(
+      `UPDATE automatic_sms_request
+       SET status='BLOCKED',status_reason='DISPATCHER_REVOKED',updated_at=now()
+       WHERE dispatcher_id=$1
+         AND status NOT IN ('SENT','DELIVERED','FAILED_FINAL','CANCELLED')`,
+      [dispatcherId],
+    );
+    await client.query('COMMIT');
+    return rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function createPartner({ id, name }) {
+  const { rows } = await pool.query(
+    `INSERT INTO automatic_sms_partner(id,name)
+     VALUES($1,$2)
+     ON CONFLICT(id) DO UPDATE
+       SET name=EXCLUDED.name,is_active=true,updated_at=now()
+     RETURNING *`,
+    [id, name],
+  );
+  return rows[0];
+}
+
+export async function deactivatePartner(partnerId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `UPDATE automatic_sms_partner
+       SET is_active=false,updated_at=now()
+       WHERE id=$1 AND is_active=true
+       RETURNING id,name`,
+      [partnerId],
+    );
+    if (!rows[0]) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    await client.query(
+      `UPDATE automatic_sms_partner_key
+       SET is_active=false,revoked_at=COALESCE(revoked_at,now())
+       WHERE partner_id=$1 AND is_active=true`,
+      [partnerId],
+    );
+    await client.query(`DELETE FROM automatic_sms_partner_dispatcher WHERE partner_id=$1`, [partnerId]);
+    await client.query(
+      `UPDATE automatic_sms_request
+       SET status='BLOCKED',status_reason='PARTNER_REVOKED',updated_at=now()
+       WHERE partner_id=$1
+         AND status NOT IN ('SENT','DELIVERED','FAILED_FINAL','CANCELLED')`,
+      [partnerId],
+    );
+    await client.query('COMMIT');
+    return rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function enrollDispatcher(code, deviceId) {
   const token = randomBytes(32).toString('base64url');
   const { rows } = await pool.query(

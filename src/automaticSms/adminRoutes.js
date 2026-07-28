@@ -5,8 +5,11 @@ import { requireAdminToken } from '../http/middleware/admin.js';
 import {
   assignDispatcher,
   createDispatcher,
+  createPartner,
   createTemplate,
   dashboardState,
+  deactivateDispatcher,
+  deactivatePartner,
   deactivateTemplate,
   insertPartnerKey,
   revokePartnerKey,
@@ -24,6 +27,39 @@ router.post('/dispatchers', async (req, res, next) => {
   try {
     const { name } = z.object({ name: z.string().trim().min(2).max(100) }).parse(req.body);
     return res.status(201).json(await createDispatcher(name));
+  } catch (error) { return next(error); }
+});
+
+router.delete('/dispatchers/:dispatcherId', async (req, res, next) => {
+  try {
+    const dispatcherId = z.string().uuid().safeParse(req.params.dispatcherId);
+    if (!dispatcherId.success) return res.status(400).json({ error: 'DISPATCHER_ID_INVALID' });
+    const dispatcher = await deactivateDispatcher(dispatcherId.data);
+    if (!dispatcher) return res.status(404).json({ error: 'DISPATCHER_NOT_FOUND' });
+    return res.json(dispatcher);
+  } catch (error) { return next(error); }
+});
+
+router.post('/partners', async (req, res, next) => {
+  try {
+    const parsed = z.object({
+      id: z.string().regex(/^[a-z0-9_]{3,80}$/),
+      name: z.string().trim().min(2).max(100),
+    }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'PARTNER_INVALID', details: parsed.error.flatten() });
+    }
+    return res.status(201).json(await createPartner(parsed.data));
+  } catch (error) { return next(error); }
+});
+
+router.delete('/partners/:partnerId', async (req, res, next) => {
+  try {
+    const partnerId = z.string().regex(/^[a-z0-9_]{3,80}$/).safeParse(req.params.partnerId);
+    if (!partnerId.success) return res.status(400).json({ error: 'PARTNER_ID_INVALID' });
+    const partner = await deactivatePartner(partnerId.data);
+    if (!partner) return res.status(404).json({ error: 'PARTNER_NOT_FOUND' });
+    return res.json(partner);
   } catch (error) { return next(error); }
 });
 
