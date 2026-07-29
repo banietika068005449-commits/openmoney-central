@@ -14,6 +14,7 @@ import {
   deactivatePartner,
   deactivateTemplate,
   insertPartnerKey,
+  reactivateAndAssignDispatcher,
   revokePartnerKey,
   removeOptOut,
   setPartnerActive,
@@ -42,6 +43,23 @@ router.delete('/dispatchers/:dispatcherId', async (req, res, next) => {
     if (!dispatcher) return res.status(404).json({ error: 'DISPATCHER_NOT_FOUND' });
     return res.json(dispatcher);
   } catch (error) { return next(error); }
+});
+
+router.post('/dispatchers/:dispatcherId/reactivate', async (req, res, next) => {
+  try {
+    const dispatcherId = z.string().uuid().safeParse(req.params.dispatcherId);
+    const body = z.object({
+      partnerId: z.string().regex(/^[a-z0-9_]{3,80}$/),
+    }).safeParse(req.body);
+    if (!dispatcherId.success) return res.status(400).json({ error: 'DISPATCHER_ID_INVALID' });
+    if (!body.success) return res.status(400).json({ error: 'PARTNER_ID_INVALID' });
+    return res.json(await reactivateAndAssignDispatcher(dispatcherId.data, body.data.partnerId));
+  } catch (error) {
+    if (['PARTNER_NOT_FOUND', 'DISPATCHER_NOT_FOUND', 'DISPATCHER_NOT_ENROLLED'].includes(error.message)) {
+      return res.status(error.status || 409).json({ error: error.message });
+    }
+    return next(error);
+  }
 });
 
 router.post('/partners', async (req, res, next) => {

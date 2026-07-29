@@ -393,6 +393,74 @@ export async function assignDispatcher(partnerId, dispatcherId) {
   return rows[0];
 }
 
+export async function reactivateAndAssignDispatcher(dispatcherId, partnerId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const partner = await client.query(
+      `SELECT id FROM automatic_sms_partner
+       WHERE id=$1 AND is_active=true FOR UPDATE`,
+      [partnerId],
+    );
+    if (!partner.rowCount) {
+      const error = new Error('PARTNER_NOT_FOUND');
+      error.status = 404;
+      throw error;
+    }
+
+    const dispatcher = await client.query(
+      `SELECT id,name,device_id,token_hash,is_active,last_seen_at,created_at
+       FROM automatic_sms_dispatcher WHERE id=$1 FOR UPDATE`,
+      [dispatcherId],
+    );
+    if (!dispatcher.rowCount) {
+      const error = new Error('DISPATCHER_NOT_FOUND');
+      error.status = 404;
+      throw error;
+    }
+    if (!dispatcher.rows[0].device_id || !dispatcher.rows[0].token_hash) {
+      const error = new Error('DISPATCHER_NOT_ENROLLED');
+      error.status = 409;
+      throw error;
+    }
+
+    const activated = await client.query(
+      `UPDATE automatic_sms_dispatcher
+       SET is_active=true,updated_at=now()
+       WHERE id=$1
+       RETURNING id,name,device_id,is_active,last_seen_at,created_at,updated_at`,
+      [dispatcherId],
+    );
+    const assignment = await client.query(
+      `INSERT INTO automatic_sms_partner_dispatcher(partner_id, dispatcher_id)
+       VALUES($1,$2) ON CONFLICT(partner_id) DO UPDATE
+         SET dispatcher_id=EXCLUDED.dispatcher_id,updated_at=now()
+       RETURNING partner_id,dispatcher_id,updated_at`,
+      [partnerId, dispatcherId],
+    );
+    const requeued = await client.query(
+      `UPDATE automatic_sms_request
+       SET dispatcher_id=$2,status='PENDING',status_reason=NULL,updated_at=now()
+       WHERE partner_id=$1 AND dispatcher_id IS NULL
+         AND status='WAITING_DISPATCHER'
+         AND status_reason='DISPATCHER_NOT_ASSIGNED'
+         AND expires_at>now()`,
+      [partnerId, dispatcherId],
+    );
+    await client.query('COMMIT');
+    return {
+      dispatcher: activated.rows[0],
+      assignment: assignment.rows[0],
+      requeuedCount: requeued.rowCount,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function dashboardState() {
   const [partners, keys, dispatchers, templates, requests] = await Promise.all([
     pool.query(`
@@ -405,7 +473,7 @@ export async function dashboardState() {
       ORDER BY p.name
     `),
     pool.query(`SELECT id,partner_id,label,is_active,created_at,revoked_at FROM automatic_sms_partner_key ORDER BY created_at DESC`),
-    pool.query(`SELECT id,name,device_id,is_active,last_seen_at,created_at FROM automatic_sms_dispatcher ORDER BY created_at DESC`),
+    pool.query(`SELECT id,name,device_id,is_active,last_seen_at,enrollment_expires_at,created_at FROM automatic_sms_dispatcher ORDER BY created_at DESC`),
     pool.query(`SELECT * FROM automatic_sms_template ORDER BY id,version DESC`),
     pool.query(`SELECT * FROM automatic_sms_request ORDER BY created_at DESC LIMIT 200`),
   ]);
