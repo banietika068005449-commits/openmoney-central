@@ -24,27 +24,6 @@ export async function consumeNonce(keyId, nonce) {
   return rowCount === 1;
 }
 
-export async function activeTemplate(templateId) {
-  const { rows } = await pool.query(
-    `SELECT * FROM automatic_sms_template
-     WHERE id=$1 AND is_active=true ORDER BY version DESC LIMIT 1`,
-    [templateId],
-  );
-  return rows[0] ?? null;
-}
-
-export async function partnerTemplate(partnerId, templateId) {
-  const { rows } = await pool.query(
-    `SELECT t.*
-     FROM automatic_sms_partner_template a
-     JOIN automatic_sms_template t ON t.id=a.template_id
-     WHERE a.partner_id=$1 AND a.template_id=$2 AND t.is_active=true
-     ORDER BY t.version DESC LIMIT 1`,
-    [partnerId, templateId],
-  );
-  return rows[0] ?? null;
-}
-
 export async function recipientOptedOut(normalizedPhone) {
   const { rowCount } = await pool.query(
     `SELECT 1 FROM automatic_sms_opt_out WHERE normalized_phone=$1`,
@@ -87,18 +66,16 @@ export async function createDispatchRequest(data) {
       const { rows } = await client.query(
         `INSERT INTO automatic_sms_request(
            id, partner_id, partner_key_id, request_id, campaign_id,
-           template_id, template_version, template_body, variables, rendered_text,
-           normalized_phone, scheduled_at, expires_at, raw_body, signature,
+           rendered_text, normalized_phone, scheduled_at, expires_at, raw_body, signature,
            signature_timestamp, signature_nonce, status,
            consent_reference, consent_captured_at, consent_source, consent_version
          ) VALUES(
-           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-           'PENDING',$18,$19,$20,$21
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+           'PENDING',$14,$15,$16,$17
          ) RETURNING *`,
         [
           id, data.partnerId, data.keyId, data.requestId, data.campaignId,
-          data.templateId, data.templateVersion, data.templateBody, data.variables,
-          data.renderedText, data.normalizedPhone, data.scheduledAt, data.expiresAt,
+          data.message, data.normalizedPhone, data.scheduledAt, data.expiresAt,
           data.rawBody, data.signature, data.timestamp, data.nonce,
           data.consent.reference, data.consent.capturedAt,
           data.consent.source, data.consent.version,
@@ -285,7 +262,7 @@ export async function deactivatePartner(partnerId) {
 }
 
 export async function dashboardState() {
-  const [partners, keys, templates, requests] = await Promise.all([
+  const [partners, keys, requests] = await Promise.all([
     pool.query(`
       SELECT p.*,
         (SELECT count(*)::int FROM automatic_sms_partner_key k
@@ -294,32 +271,13 @@ export async function dashboardState() {
       ORDER BY p.name
     `),
     pool.query(`SELECT id,partner_id,label,is_active,created_at,revoked_at FROM automatic_sms_partner_key ORDER BY created_at DESC`),
-    pool.query(`SELECT * FROM automatic_sms_template ORDER BY id,version DESC`),
     pool.query(`SELECT * FROM automatic_sms_request ORDER BY created_at DESC LIMIT 200`),
   ]);
   return {
     partners: partners.rows,
     keys: keys.rows,
-    templates: templates.rows,
     requests: requests.rows,
   };
-}
-
-export async function allowPartnerTemplate(partnerId, templateId) {
-  const { rows } = await pool.query(
-    `INSERT INTO automatic_sms_partner_template(partner_id,template_id)
-     SELECT $1,$2
-     WHERE EXISTS(SELECT 1 FROM automatic_sms_partner WHERE id=$1 AND is_active=true)
-       AND EXISTS(SELECT 1 FROM automatic_sms_template WHERE id=$2 AND is_active=true)
-     ON CONFLICT DO NOTHING RETURNING *`,
-    [partnerId, templateId],
-  );
-  if (rows[0]) return rows[0];
-  const existing = await pool.query(
-    `SELECT * FROM automatic_sms_partner_template WHERE partner_id=$1 AND template_id=$2`,
-    [partnerId, templateId],
-  );
-  return existing.rows[0] ?? null;
 }
 
 export async function addOptOut(normalizedPhone, source, reason) {
@@ -380,25 +338,4 @@ export async function revokePartnerKey(keyId) {
     );
   }
   return rows[0] ?? null;
-}
-
-export async function createTemplate({ id, body, variableSchema }) {
-  const { rows } = await pool.query(
-    `INSERT INTO automatic_sms_template(id,version,body,variable_schema)
-     VALUES($1,COALESCE((SELECT max(version)+1 FROM automatic_sms_template WHERE id=$1),1),$2,$3)
-     RETURNING *`,
-    [id, body, variableSchema],
-  );
-  return rows[0];
-}
-
-export async function deactivateTemplate(templateId) {
-  const { rows } = await pool.query(
-    `UPDATE automatic_sms_template
-     SET is_active=false
-     WHERE id=$1 AND is_active=true
-     RETURNING id,version,is_active`,
-    [templateId],
-  );
-  return rows;
 }

@@ -33,13 +33,12 @@ async function seed() {
   const id = randomUUID();
   await pool.query(
     `INSERT INTO automatic_sms_request(
-       id,partner_id,partner_key_id,request_id,campaign_id,template_id,
-       template_version,template_body,variables,rendered_text,normalized_phone,
+       id,partner_id,partner_key_id,request_id,campaign_id,rendered_text,normalized_phone,
        scheduled_at,expires_at,raw_body,signature,signature_timestamp,
        signature_nonce,status
      ) VALUES(
-       $1,$2,$3,$4,'test-campaign','test-template',1,'Test','{}'::jsonb,
-       'Test','+242060000000',now(),now()+interval '1 hour','{}','signature',
+       $1,$2,$3,$4,'test-campaign','Test','+242060000000',
+       now(),now()+interval '1 hour','{}','signature',
        now()::text,'test-nonce','PENDING'
      )`,
     [id, PARTNER_ID, keyId, randomUUID()],
@@ -88,11 +87,7 @@ test('cree directement une demande PENDING sans affectation', async () => {
     keyId,
     requestId: randomUUID(),
     campaignId: 'test-campaign-create',
-    templateId: 'test-template',
-    templateVersion: 1,
-    templateBody: 'Test',
-    variables: {},
-    renderedText: 'Test',
+    message: 'Test',
     normalizedPhone: '+242060000001',
     scheduledAt: new Date(),
     expiresAt: new Date(Date.now() + 60 * 60_000),
@@ -103,7 +98,7 @@ test('cree directement une demande PENDING sans affectation', async () => {
     consent: {
       reference: 'test-consent',
       capturedAt: new Date().toISOString(),
-      source: 'tecno_manual',
+      source: 'partner_manual',
       version: 'test-v1',
     },
   });

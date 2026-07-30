@@ -79,9 +79,9 @@ export async function ensureAutomaticSmsSchema() {
       request_id TEXT NOT NULL,
       campaign_id TEXT NOT NULL,
       dispatcher_id TEXT REFERENCES automatic_sms_dispatcher(id),
-      template_id TEXT NOT NULL,
-      template_version INTEGER NOT NULL,
-      template_body TEXT NOT NULL,
+      template_id TEXT,
+      template_version INTEGER,
+      template_body TEXT,
       variables JSONB NOT NULL DEFAULT '{}'::jsonb,
       rendered_text TEXT NOT NULL,
       normalized_phone TEXT NOT NULL,
@@ -108,6 +108,9 @@ export async function ensureAutomaticSmsSchema() {
       ADD COLUMN IF NOT EXISTS consent_source TEXT;
     ALTER TABLE automatic_sms_request
       ADD COLUMN IF NOT EXISTS consent_version TEXT;
+    ALTER TABLE automatic_sms_request ALTER COLUMN template_id DROP NOT NULL;
+    ALTER TABLE automatic_sms_request ALTER COLUMN template_version DROP NOT NULL;
+    ALTER TABLE automatic_sms_request ALTER COLUMN template_body DROP NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_automatic_sms_request_claim
       ON automatic_sms_request(dispatcher_id, delivered_to_device_at, created_at);
     CREATE INDEX IF NOT EXISTS idx_automatic_sms_request_global_claim
@@ -162,26 +165,6 @@ export async function ensureAutomaticSmsSchema() {
        );
   `);
 
-  await pool.query(
-    `INSERT INTO automatic_sms_template(id, version, body, variable_schema)
-     VALUES (
-       'payment_app_download_v1',
-       1,
-       'Bonjour {{customerName}}, utilisez l''application OpenMoney pour consulter et regler votre echeance.',
-       '{"customerName":{"required":true,"maxLength":80}}'::jsonb
-     )
-     ON CONFLICT (id, version) DO NOTHING`,
-  );
-  await pool.query(
-    `INSERT INTO automatic_sms_template(id, version, body, variable_schema)
-     VALUES (
-       'contract_app_download_v1',
-       1,
-       'Bonjour {{customerName}}, votre contrat appareil Tecno est enregistre. Telechargez OpenMoney pour suivre vos echeances : {{openMoneyDownloadUrl}}',
-       '{"customerName":{"required":true,"maxLength":80}}'::jsonb
-     )
-     ON CONFLICT (id, version) DO NOTHING`,
-  );
   ready = true;
   console.log('[automatic-sms] schema verifie/applique');
 }

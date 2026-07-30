@@ -7,7 +7,6 @@ import {
   consumeNonce,
   createDispatchRequest,
   findActivePartnerKey,
-  partnerTemplate,
   recipientOptedOut,
 } from './repo.js';
 
@@ -17,13 +16,12 @@ const requestSchema = z.object({
   partnerId: z.string().trim().min(1).max(80),
   requestId: z.string().trim().min(1).max(120),
   campaignId: z.string().trim().min(1).max(120),
-  templateId: z.string().trim().min(1).max(120),
   phoneNumber: z.string().trim().min(1).max(40),
-  variables: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
+  message: z.string().trim().min(1).max(918),
   consent: z.object({
     reference: z.string().trim().min(3).max(200),
     capturedAt: z.string().datetime({ offset: true }),
-    source: z.enum(['tecno_contract', 'tecno_manual']),
+    source: z.string().trim().min(2).max(80),
     version: z.string().trim().min(3).max(80),
   }),
   scheduledAt: z.string().datetime({ offset: true }).optional(),
@@ -32,31 +30,6 @@ const requestSchema = z.object({
 
 function header(req, name) {
   return String(req.get(name) || '').trim();
-}
-
-function validateVariables(schema, variables) {
-  const spec = schema && typeof schema === 'object' ? schema : {};
-  const allowed = new Set(Object.keys(spec));
-  for (const key of Object.keys(variables)) {
-    if (!allowed.has(key)) return `VARIABLE_NOT_ALLOWED:${key}`;
-  }
-  for (const [key, rule] of Object.entries(spec)) {
-    const value = variables[key];
-    if (rule?.required && (value == null || String(value).trim() === '')) {
-      return `VARIABLE_REQUIRED:${key}`;
-    }
-    if (value != null && String(value).length > Number(rule?.maxLength || 200)) {
-      return `VARIABLE_TOO_LONG:${key}`;
-    }
-  }
-  return null;
-}
-
-function renderTemplate(body, variables) {
-  return body.replace(/\{\{([A-Za-z][A-Za-z0-9_]*)\}\}/g, (_match, key) => {
-    if (!(key in variables)) throw Object.assign(new Error('VARIABLE_REQUIRED'), { code: `VARIABLE_REQUIRED:${key}` });
-    return String(variables[key]);
-  });
 }
 
 router.post('/requests', async (req, res, next) => {
@@ -118,29 +91,11 @@ router.post('/requests', async (req, res, next) => {
     audit.normalizedPhone = normalizedPhone;
     if (!normalizedPhone) return reject(400, 'PHONE_INVALID');
     if (await recipientOptedOut(normalizedPhone)) return reject(403, 'RECIPIENT_OPTED_OUT');
-    const template = await partnerTemplate(partnerId, body.templateId);
-    if (!template) return reject(400, 'TEMPLATE_NOT_ALLOWED');
-    const variableError = validateVariables(template.variable_schema, body.variables);
-    if (variableError) return reject(400, variableError);
-    const openMoneyDownloadUrl = String(process.env.OPENMONEY_APP_DOWNLOAD_URL || '').trim();
-    if (template.body.includes('{{openMoneyDownloadUrl}}') && !openMoneyDownloadUrl) {
-      return reject(503, 'DOWNLOAD_URL_NOT_CONFIGURED');
-    }
-    const renderedText = renderTemplate(template.body, {
-      ...body.variables,
-      openMoneyDownloadUrl,
-    });
-    if (!renderedText.trim() || renderedText.length > 918) {
-      return reject(400, 'MESSAGE_TOO_LONG');
-    }
 
     const result = await createDispatchRequest({
       ...body,
       keyId,
-      templateVersion: template.version,
-      templateBody: template.body,
       normalizedPhone,
-      renderedText,
       scheduledAt,
       expiresAt,
       rawBody: rawBody.toString('utf8'),
@@ -158,7 +113,6 @@ router.post('/requests', async (req, res, next) => {
       requestId: result.item.request_id,
       campaignId: result.item.campaign_id,
       normalizedPhone: result.item.normalized_phone,
-      templateVersion: result.item.template_version,
       status: result.duplicateRecipient ? 'DUPLICATE_RECIPIENT' : result.item.status,
       existing: result.existing,
     });

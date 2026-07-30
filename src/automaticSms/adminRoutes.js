@@ -4,12 +4,9 @@ import { z } from 'zod';
 import { requireAdminToken } from '../http/middleware/admin.js';
 import {
   addOptOut,
-  allowPartnerTemplate,
   createPartner,
-  createTemplate,
   dashboardState,
   deactivatePartner,
-  deactivateTemplate,
   insertPartnerKey,
   revokePartnerKey,
   removeOptOut,
@@ -44,14 +41,6 @@ router.delete('/partners/:partnerId', async (req, res, next) => {
     const partner = await deactivatePartner(partnerId.data);
     if (!partner) return res.status(404).json({ error: 'PARTNER_NOT_FOUND' });
     return res.json(partner);
-  } catch (error) { return next(error); }
-});
-
-router.put('/partners/:partnerId/templates/:templateId', async (req, res, next) => {
-  try {
-    const allowed = await allowPartnerTemplate(req.params.partnerId, req.params.templateId);
-    if (!allowed) return res.status(404).json({ error: 'PARTNER_OR_TEMPLATE_NOT_FOUND' });
-    return res.json(allowed);
   } catch (error) { return next(error); }
 });
 
@@ -110,43 +99,6 @@ router.delete('/keys/:keyId', async (req, res, next) => {
     const revoked = await revokePartnerKey(req.params.keyId);
     if (!revoked) return res.status(404).json({ error: 'KEY_NOT_FOUND' });
     return res.json(revoked);
-  } catch (error) { return next(error); }
-});
-
-router.post('/templates', async (req, res, next) => {
-  try {
-    const parsed = z.object({
-      id: z.string().regex(/^[a-z0-9_]{3,120}$/),
-      body: z.string().min(1).max(918),
-      variableSchema: z.record(z.string(), z.object({
-        required: z.boolean().default(false),
-        maxLength: z.number().int().min(1).max(500).default(200),
-      })).default({}),
-    }).safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({
-        error: 'TEMPLATE_INVALID',
-        details: parsed.error.flatten(),
-      });
-    }
-    return res.status(201).json(await createTemplate(parsed.data));
-  } catch (error) { return next(error); }
-});
-
-router.delete('/templates/:templateId', async (req, res, next) => {
-  try {
-    const templateId = z.string().regex(/^[a-z0-9_]{3,120}$/).safeParse(req.params.templateId);
-    if (!templateId.success) {
-      return res.status(400).json({ error: 'TEMPLATE_ID_INVALID' });
-    }
-    const versions = await deactivateTemplate(templateId.data);
-    if (versions.length === 0) {
-      return res.status(404).json({ error: 'TEMPLATE_NOT_FOUND' });
-    }
-    return res.json({
-      id: templateId.data,
-      deactivatedVersions: versions.map((item) => item.version),
-    });
   } catch (error) { return next(error); }
 });
 
