@@ -1,40 +1,24 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireDispatcher } from './mobileAuth.js';
+import { requireAutomaticSmsToken } from './mobileAuth.js';
 import {
   appendEvents,
   authorizeSend,
   claimNext,
-  enrollDispatcher,
   markReceived,
 } from './repo.js';
 
 const router = Router();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-router.post('/dispatchers/enroll', async (req, res, next) => {
-  try {
-    const parsed = z.object({
-      enrollmentCode: z.string().min(16).max(200),
-      deviceId: z.string().min(8).max(200),
-    }).safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'ENROLLMENT_INVALID' });
-    const enrolled = await enrollDispatcher(parsed.data.enrollmentCode, parsed.data.deviceId);
-    if (!enrolled) return res.status(401).json({ error: 'ENROLLMENT_CODE_INVALID' });
-    return res.json(enrolled);
-  } catch (error) {
-    return next(error);
-  }
-});
-
-router.use(requireDispatcher);
+router.use(requireAutomaticSmsToken);
 
 router.post('/claims/next', async (req, res, next) => {
   const waitSeconds = Math.min(25, Math.max(0, Number(req.body?.waitSeconds ?? 25)));
   const deadline = Date.now() + waitSeconds * 1000;
   try {
     do {
-      const item = await claimNext(req.dispatcher.id);
+      const item = await claimNext();
       if (item) {
         return res.json({
           id: item.id,
@@ -67,7 +51,7 @@ router.post('/claims/next', async (req, res, next) => {
 
 router.post('/jobs/:id/received', async (req, res, next) => {
   try {
-    const item = await markReceived(req.params.id, req.dispatcher.id);
+    const item = await markReceived(req.params.id);
     if (!item) return res.status(404).json({ error: 'JOB_NOT_FOUND' });
     return res.json({ id: item.id, received: true });
   } catch (error) {
@@ -77,7 +61,7 @@ router.post('/jobs/:id/received', async (req, res, next) => {
 
 router.post('/jobs/:id/authorize', async (req, res, next) => {
   try {
-    const auth = await authorizeSend(req.params.id, req.dispatcher.id);
+    const auth = await authorizeSend(req.params.id);
     if (!auth) return res.status(403).json({ error: 'JOB_NOT_AUTHORIZED' });
     return res.json({ authorizationUntil: auth.authorization_until });
   } catch (error) {
@@ -101,7 +85,7 @@ router.post('/events', async (req, res, next) => {
       })).min(1).max(100),
     }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'EVENTS_INVALID' });
-    const acceptedEventIds = await appendEvents(req.dispatcher.id, parsed.data.events);
+    const acceptedEventIds = await appendEvents(parsed.data.events);
     return res.json({ accepted: acceptedEventIds.length, acceptedEventIds });
   } catch (error) {
     return next(error);

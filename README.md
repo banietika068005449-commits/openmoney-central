@@ -59,6 +59,7 @@ npm start
 | `DATABASE_URL`      | (requis)| Postgres connection string (Neon)                       |
 | `POLL_INTERVAL_MS`  | `5000`  | Intervalle entre deux passes du worker                  |
 | `BATCH_SIZE`        | `50`    | Nombre de SMS traites par passe                         |
+| `AUTOMATIC_SMS_DISPATCHER_TOKEN` | (requis pour SMS Dispatcher) | Jeton Bearer dédié à l’unique app Android ; même secret que celui injecté au build |
 
 ### Synchro TECNO « Tecno Ya Niongo »
 

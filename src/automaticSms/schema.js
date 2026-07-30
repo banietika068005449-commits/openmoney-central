@@ -110,13 +110,16 @@ export async function ensureAutomaticSmsSchema() {
       ADD COLUMN IF NOT EXISTS consent_version TEXT;
     CREATE INDEX IF NOT EXISTS idx_automatic_sms_request_claim
       ON automatic_sms_request(dispatcher_id, delivered_to_device_at, created_at);
+    CREATE INDEX IF NOT EXISTS idx_automatic_sms_request_global_claim
+      ON automatic_sms_request(delivered_to_device_at, scheduled_at, created_at)
+      WHERE status IN ('PENDING','WAITING_ADVANCED_MODE','FAILED_RETRYABLE');
     CREATE INDEX IF NOT EXISTS idx_automatic_sms_request_status
       ON automatic_sms_request(status, updated_at);
 
     CREATE TABLE IF NOT EXISTS automatic_sms_event (
       event_id TEXT PRIMARY KEY,
       request_id TEXT NOT NULL REFERENCES automatic_sms_request(id) ON DELETE CASCADE,
-      dispatcher_id TEXT NOT NULL REFERENCES automatic_sms_dispatcher(id),
+      dispatcher_id TEXT REFERENCES automatic_sms_dispatcher(id),
       status TEXT NOT NULL,
       reason TEXT,
       details JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -125,6 +128,8 @@ export async function ensureAutomaticSmsSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_automatic_sms_event_request
       ON automatic_sms_event(request_id, occurred_at);
+    ALTER TABLE automatic_sms_event
+      ALTER COLUMN dispatcher_id DROP NOT NULL;
 
     CREATE TABLE IF NOT EXISTS automatic_sms_ingress_audit (
       id BIGSERIAL PRIMARY KEY,
@@ -139,6 +144,22 @@ export async function ensureAutomaticSmsSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_automatic_sms_ingress_audit_partner
       ON automatic_sms_ingress_audit(partner_id, created_at DESC);
+
+    UPDATE automatic_sms_request r
+       SET status='PENDING', status_reason=NULL, updated_at=now()
+     WHERE r.expires_at>now()
+       AND (
+         (r.status='WAITING_DISPATCHER' AND r.status_reason='DISPATCHER_NOT_ASSIGNED')
+         OR (r.status='BLOCKED' AND r.status_reason='DISPATCHER_REVOKED')
+       )
+       AND EXISTS(
+         SELECT 1 FROM automatic_sms_partner p
+          WHERE p.id=r.partner_id AND p.is_active=true
+       )
+       AND EXISTS(
+         SELECT 1 FROM automatic_sms_partner_key k
+          WHERE k.id=r.partner_key_id AND k.is_active=true
+       );
   `);
 
   await pool.query(

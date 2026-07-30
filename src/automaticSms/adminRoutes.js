@@ -3,18 +3,14 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdminToken } from '../http/middleware/admin.js';
 import {
-  assignDispatcher,
   addOptOut,
   allowPartnerTemplate,
-  createDispatcher,
   createPartner,
   createTemplate,
   dashboardState,
-  deactivateDispatcher,
   deactivatePartner,
   deactivateTemplate,
   insertPartnerKey,
-  reactivateAndAssignDispatcher,
   revokePartnerKey,
   removeOptOut,
   setPartnerActive,
@@ -26,40 +22,6 @@ router.use(requireAdminToken);
 
 router.get('/', async (_req, res, next) => {
   try { return res.json(await dashboardState()); } catch (error) { return next(error); }
-});
-
-router.post('/dispatchers', async (req, res, next) => {
-  try {
-    const { name } = z.object({ name: z.string().trim().min(2).max(100) }).parse(req.body);
-    return res.status(201).json(await createDispatcher(name));
-  } catch (error) { return next(error); }
-});
-
-router.delete('/dispatchers/:dispatcherId', async (req, res, next) => {
-  try {
-    const dispatcherId = z.string().uuid().safeParse(req.params.dispatcherId);
-    if (!dispatcherId.success) return res.status(400).json({ error: 'DISPATCHER_ID_INVALID' });
-    const dispatcher = await deactivateDispatcher(dispatcherId.data);
-    if (!dispatcher) return res.status(404).json({ error: 'DISPATCHER_NOT_FOUND' });
-    return res.json(dispatcher);
-  } catch (error) { return next(error); }
-});
-
-router.post('/dispatchers/:dispatcherId/reactivate', async (req, res, next) => {
-  try {
-    const dispatcherId = z.string().uuid().safeParse(req.params.dispatcherId);
-    const body = z.object({
-      partnerId: z.string().regex(/^[a-z0-9_]{3,80}$/),
-    }).safeParse(req.body);
-    if (!dispatcherId.success) return res.status(400).json({ error: 'DISPATCHER_ID_INVALID' });
-    if (!body.success) return res.status(400).json({ error: 'PARTNER_ID_INVALID' });
-    return res.json(await reactivateAndAssignDispatcher(dispatcherId.data, body.data.partnerId));
-  } catch (error) {
-    if (['PARTNER_NOT_FOUND', 'DISPATCHER_NOT_FOUND', 'DISPATCHER_NOT_ENROLLED'].includes(error.message)) {
-      return res.status(error.status || 409).json({ error: error.message });
-    }
-    return next(error);
-  }
 });
 
 router.post('/partners', async (req, res, next) => {
@@ -82,13 +44,6 @@ router.delete('/partners/:partnerId', async (req, res, next) => {
     const partner = await deactivatePartner(partnerId.data);
     if (!partner) return res.status(404).json({ error: 'PARTNER_NOT_FOUND' });
     return res.json(partner);
-  } catch (error) { return next(error); }
-});
-
-router.put('/partners/:partnerId/dispatcher', async (req, res, next) => {
-  try {
-    const { dispatcherId } = z.object({ dispatcherId: z.string().uuid() }).parse(req.body);
-    return res.json(await assignDispatcher(req.params.partnerId, dispatcherId));
   } catch (error) { return next(error); }
 });
 

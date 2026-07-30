@@ -82,12 +82,14 @@ export function createApp({ analysisService } = {}) {
 }
 
 /**
- * Demarre le serveur HTTP. No-op si ni INGEST_TOKEN ni ADMIN_TOKEN ne sont definis
+ * Demarre le serveur HTTP. No-op si aucun jeton HTTP n'est defini
  * (mode worker pur, retro-compatible).
  */
 export function startServer({ analysisService } = {}) {
-  if (!process.env.INGEST_TOKEN && !process.env.ADMIN_TOKEN) {
-    console.log('[http] INGEST_TOKEN et ADMIN_TOKEN absents : serveur HTTP desactive');
+  if (!process.env.INGEST_TOKEN &&
+      !process.env.ADMIN_TOKEN &&
+      !process.env.AUTOMATIC_SMS_DISPATCHER_TOKEN) {
+    console.log('[http] aucun jeton HTTP configure : serveur HTTP desactive');
     return null;
   }
   const port = Number(process.env.PORT || process.env.HTTP_PORT || 3001);
