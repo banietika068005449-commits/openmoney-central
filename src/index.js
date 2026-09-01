@@ -10,8 +10,6 @@ import { UnknownSmsAnalyzer } from './analysis/providers/unknown.js';
 import { startServer } from './http/server.js';
 import { syncTecnoNumbers } from './services/tecnoSync.service.js';
 import { getTecnoSyncState } from './repos/setting.repo.js';
-import { ensureAgentSchema } from './repos/agentSchema.repo.js';
-import { ensureAutomaticSmsSchema } from './automaticSms/schema.js';
 
 // Worker pur : interroge la base A (table `sms`) toutes les POLL_INTERVAL_MS,
 // analyse les SMS en status='received' et ecrit le resultat dans la base B (table `sms_analysis`).
@@ -34,11 +32,6 @@ const registry = new SmsAnalyzerRegistry([
   new UnknownSmsAnalyzer(),      // fallback, doit etre en dernier
 ]);
 const analysisService = new SmsAnalysisService({ pool, registry });
-
-// Schema du module AGENT auto-applique au demarrage (Render lance `npm start`,
-// pas `npm run migrate`). Idempotent : CREATE TABLE / ADD COLUMN IF NOT EXISTS.
-await ensureAgentSchema();
-await ensureAutomaticSmsSchema();
 
 // Rafraichit le flag canAnalyze de l'AI au demarrage puis toutes les 60s
 await aiAnalyzer.refresh();

@@ -4,29 +4,21 @@ import { pool } from '../db.js';
 // le frontend (cf. frontend central/src/pages/SmsPage.jsx).
 const COLUMNS = `
   s.id, s.sender, s.content, s.received_at, s.smsc_ts, s.status,
-  s.admin_processing_status,
   s.point_de_vente,
   a.operator AS analysis_operator, a.amount, a.currency,
-  a.phone_number, COALESCE(a.imei, ci.imei) AS imei, a.reference, a.transaction_id,
+  a.phone_number, a.reference, a.transaction_id,
   tn.note AS transaction_note,
   sn.note AS sms_note,
-  CASE WHEN cb.phone_number IS NOT NULL THEN cb.amount_rule_id ELSE tb.amount_rule_id END AS transaction_badge_rule_id,
-  TO_CHAR(cmd.manual_date, 'YYYY-MM-DD') AS transaction_manual_date,
   (ct.phone_number IS NOT NULL) AS tecno,
   COALESCE(ct.auto, false) AS tecno_auto,
-  (s.flagged_by_agent_id IS NOT NULL) AS flagged,
   a.extracted_data, a.analysis_status
 `;
 
 const BASE_SELECT = `
   FROM sms s
   LEFT JOIN sms_analysis a ON a.sms_id = s.id
-  LEFT JOIN client_imei ci ON ci.phone_number = a.phone_number
   LEFT JOIN transaction_note tn ON tn.transaction_id = a.transaction_id
   LEFT JOIN sms_note sn ON sn.sms_id = s.id
-  LEFT JOIN transaction_badge tb ON tb.transaction_id = a.transaction_id
-  LEFT JOIN client_badge cb ON cb.phone_number = a.phone_number
-  LEFT JOIN client_manual_date cmd ON cmd.phone_number = a.phone_number
   LEFT JOIN client_tecno ct ON ct.phone_number = a.phone_number
 `;
 
@@ -39,42 +31,6 @@ async function ensureSmsAuxTables() {
       sms_id     BIGINT PRIMARY KEY REFERENCES sms(id) ON DELETE CASCADE,
       note       TEXT NOT NULL DEFAULT '',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS transaction_badge (
-      transaction_id TEXT PRIMARY KEY,
-      amount_rule_id TEXT NOT NULL DEFAULT '',
-      updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS client_badge (
-      phone_number   TEXT PRIMARY KEY,
-      amount_rule_id TEXT NOT NULL DEFAULT '',
-      updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`
-    INSERT INTO client_badge (phone_number, amount_rule_id, updated_at)
-    SELECT DISTINCT ON (a.phone_number)
-      a.phone_number,
-      tb.amount_rule_id,
-      tb.updated_at
-    FROM transaction_badge tb
-    JOIN sms_analysis a ON a.transaction_id = tb.transaction_id
-    WHERE a.phone_number IS NOT NULL
-      AND TRIM(a.phone_number) <> ''
-      AND tb.amount_rule_id IS NOT NULL
-      AND TRIM(tb.amount_rule_id) <> ''
-    ORDER BY a.phone_number, tb.updated_at DESC
-    ON CONFLICT (phone_number) DO NOTHING
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS client_manual_date (
-      phone_number TEXT PRIMARY KEY,
-      manual_date  DATE,
-      updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
   await pool.query(`
@@ -95,7 +51,7 @@ async function ensureSmsAuxTables() {
 /**
  * Liste paginee + filtres. Renvoie items + total.
  *
- * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, operatorPrefix?:'MTN'|'AIRTEL', phone?:string, transactionId?:string, imei?:string, hasNote?:boolean, flagged?:boolean, tecno?:'only'|'hide', amount?:number, amountRule?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
+ * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, operatorPrefix?:'MTN'|'AIRTEL', phone?:string, transactionId?:string, hasNote?:boolean, tecno?:'only'|'hide', amount?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
  */
 export async function listSms(f) {
   await ensureSmsAuxTables();
@@ -149,14 +105,10 @@ export async function listSms(f) {
       )`);
     }
   }
-  if (f.imei)     { params.push(`%${f.imei}%`);       where.push(`COALESCE(a.imei, ci.imei) ILIKE $${params.length}`); }
-  if (f.hasImei)  { where.push(`(COALESCE(a.imei, ci.imei) IS NOT NULL AND TRIM(COALESCE(a.imei, ci.imei)) <> '')`); }
   if (f.hasNote)  { where.push(`(sn.note IS NOT NULL AND TRIM(sn.note) <> '')`); }
-  if (f.flagged)  { where.push(`s.flagged_by_agent_id IS NOT NULL`); }
   if (f.tecno === 'only') where.push(`ct.phone_number IS NOT NULL`);
   else if (f.tecno === 'hide') where.push(`ct.phone_number IS NULL`);
   if (f.amount) { params.push(f.amount);              where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
-  if (f.amountRule) { params.push(f.amountRule);      where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
   if (f.q) {
     const q = String(f.q || '').trim();
     if (q) {
@@ -256,174 +208,12 @@ export async function listSms(f) {
   };
 }
 
-/**
- * Toutes les transactions dont le numero est archive par cet agent (jointure
- * sms + sms_analysis), triees recentes d'abord. Reutilise COLUMNS/BASE_SELECT.
- * Renvoie { items, total }.
- */
-export async function listArchivedTransactions(agentId, { status, phone, date, limit = 200, offset = 0 } = {}) {
-  await ensureSmsAuxTables();
-  const params = [agentId];
-  const conds = [`a.phone_number IN (SELECT phone_number FROM agent_archive WHERE agent_id = $1)`];
-  if (status) { params.push(status); conds.push(`s.admin_processing_status = $${params.length}`); }
-  if (phone) { params.push(`%${phone}%`); conds.push(`a.phone_number ILIKE $${params.length}`); }
-  if (date) {
-    const start = new Date(`${date}T00:00:00+01:00`);
-    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-    params.push(start); conds.push(`s.received_at >= $${params.length}`);
-    params.push(end); conds.push(`s.received_at < $${params.length}`);
-  }
-  const where = `WHERE ${conds.join(' AND ')}`;
-
-  const totalQ = await pool.query(`SELECT COUNT(*)::int AS n ${BASE_SELECT} ${where}`, params);
-
-  params.push(limit, offset);
-  const itemsQ = await pool.query(
-    `SELECT ${COLUMNS} ${BASE_SELECT} ${where}
-     ORDER BY s.received_at DESC
-     LIMIT $${params.length - 1} OFFSET $${params.length}`,
-    params,
-  );
-  return { items: itemsQ.rows, total: totalQ.rows[0].n };
-}
-
 export async function setSmsStatus(id, status) {
   const { rows } = await pool.query(
-    `UPDATE sms SET status = $1 WHERE id = $2 RETURNING id, sender, content, received_at, smsc_ts, status, admin_processing_status`,
+    `UPDATE sms SET status = $1 WHERE id = $2 RETURNING id, sender, content, received_at, smsc_ts, status`,
     [status, id],
   );
   return rows[0] ?? null;
-}
-
-export async function setSmsAdminProcessingStatus(id, adminProcessingStatus) {
-  const { rows } = await pool.query(
-    `WITH previous AS (
-       SELECT id, flagged_by_agent_id
-       FROM sms
-       WHERE id = $2
-     )
-     UPDATE sms s
-     SET admin_processing_status = $1,
-         flagged_by_agent_id = NULL,
-         flagged_at = NULL
-     FROM previous p
-     WHERE s.id = p.id
-     RETURNING s.id, s.sender, s.content, s.received_at, s.smsc_ts, s.status, s.admin_processing_status,
-               p.flagged_by_agent_id`,
-    [adminProcessingStatus, id],
-  );
-  return rows[0] ?? null;
-}
-
-/**
- * Signalement d'une transaction par un agent. IMPORTANT : ne modifie JAMAIS
- * admin_processing_status. On memorise seulement l'agent signalant (marqueur de
- * signalement) : cela rend la transaction ROUGE cote admin (via `flagged`) et
- * declenche l'alerte flottante, sans toucher au statut de traitement.
- * Re-signalement autorise : remet flag_ack_at a NULL pour re-declencher l'alerte.
- * Renvoie { id, phone_number, transaction_id } ou null si SMS introuvable.
- */
-export async function flagSmsByAgent(id, agentId) {
-  const { rows } = await pool.query(
-    `UPDATE sms s
-     SET flagged_by_agent_id = $2,
-         flagged_at = NOW(),
-         flag_ack_at = NULL
-     FROM sms_analysis a
-     WHERE s.id = $1 AND a.sms_id = s.id
-     RETURNING s.id, a.phone_number, a.transaction_id`,
-    [id, agentId],
-  );
-  if (rows[0]) return rows[0];
-  const { rows: bare } = await pool.query(
-    `UPDATE sms SET flagged_by_agent_id = $2, flagged_at = NOW(), flag_ack_at = NULL
-     WHERE id = $1 RETURNING id`,
-    [id, agentId],
-  );
-  return bare[0] ? { id: bare[0].id, phone_number: null, transaction_id: null } : null;
-}
-
-/** Efface le marqueur de signalement (apres notification de l'agent). */
-export async function clearSmsFlag(id) {
-  await pool.query(
-    `UPDATE sms SET flagged_by_agent_id = NULL, flagged_at = NULL WHERE id = $1`,
-    [id],
-  );
-}
-
-/** Signalements en attente de prise en compte admin (alerte flottante). */
-export async function listPendingFlags() {
-  await ensureSmsAuxTables();
-  const { rows } = await pool.query(
-    `SELECT s.id, s.flagged_at, s.flagged_by_agent_id AS agent_id,
-            ag.name AS agent_name,
-            a.phone_number, a.amount, a.transaction_id
-     FROM sms s
-     LEFT JOIN sms_analysis a ON a.sms_id = s.id
-     LEFT JOIN agent ag ON ag.id = s.flagged_by_agent_id
-     WHERE s.flagged_by_agent_id IS NOT NULL AND s.flag_ack_at IS NULL
-     ORDER BY s.flagged_at ASC
-     LIMIT 20`,
-  );
-  return rows;
-}
-
-/** Marque un signalement comme pris en compte. Renvoie { agent_id, phone_number, transaction_id }. */
-export async function ackSmsFlag(id) {
-  const { rows } = await pool.query(
-    `UPDATE sms s
-     SET flag_ack_at = NOW()
-     FROM sms_analysis a
-     WHERE s.id = $1 AND a.sms_id = s.id AND s.flagged_by_agent_id IS NOT NULL
-     RETURNING s.flagged_by_agent_id AS agent_id, a.phone_number, a.transaction_id`,
-    [id],
-  );
-  if (rows[0]) return rows[0];
-  const { rows: bare } = await pool.query(
-    `UPDATE sms SET flag_ack_at = NOW()
-     WHERE id = $1 AND flagged_by_agent_id IS NOT NULL
-     RETURNING flagged_by_agent_id AS agent_id`,
-    [id],
-  );
-  return bare[0] ? { agent_id: bare[0].agent_id, phone_number: null, transaction_id: null } : null;
-}
-
-export async function setSmsImei(id, imei) {
-  const normalizedImei = String(imei || '').replace(/\D/g, '').slice(0, 32);
-  const { rows } = await pool.query(
-    `SELECT phone_number FROM sms_analysis WHERE sms_id = $1`,
-    [id],
-  );
-  const phoneNumber = rows[0]?.phone_number || null;
-
-  if (!normalizedImei) {
-    if (phoneNumber) {
-      await pool.query(`DELETE FROM client_imei WHERE phone_number = $1`, [phoneNumber]);
-      await pool.query(`UPDATE sms_analysis SET imei = NULL WHERE phone_number = $1`, [phoneNumber]);
-    } else {
-      await pool.query(`UPDATE sms_analysis SET imei = NULL WHERE sms_id = $1`, [id]);
-    }
-  } else if (phoneNumber) {
-    await pool.query(
-      `INSERT INTO client_imei (phone_number, imei, updated_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (phone_number) DO UPDATE SET
-         imei = EXCLUDED.imei,
-         updated_at = NOW()`,
-      [phoneNumber, normalizedImei],
-    );
-    await pool.query(
-      `UPDATE sms_analysis SET imei = $1 WHERE phone_number = $2`,
-      [normalizedImei, phoneNumber],
-    );
-  } else {
-    await pool.query(
-      `UPDATE sms_analysis SET imei = $1 WHERE sms_id = $2`,
-      [normalizedImei, id],
-    );
-  }
-
-  return getSmsById(id);
 }
 
 export async function setTransactionNote(transactionId, note) {
@@ -446,90 +236,6 @@ export async function setTransactionNote(transactionId, note) {
     [normalizedTransactionId, normalizedNote],
   );
   return rows[0] ?? null;
-}
-
-export async function setTransactionBadge(transactionId, amountRuleId) {
-  await ensureSmsAuxTables();
-  const normalizedTransactionId = String(transactionId || '').trim();
-  const normalizedAmountRuleId = String(amountRuleId || '').trim();
-  if (!normalizedTransactionId) return null;
-
-  if (!normalizedAmountRuleId) {
-    await pool.query(`DELETE FROM transaction_badge WHERE transaction_id = $1`, [normalizedTransactionId]);
-    return { transaction_id: normalizedTransactionId, transaction_badge_rule_id: '' };
-  }
-
-  const { rows } = await pool.query(
-    `INSERT INTO transaction_badge (transaction_id, amount_rule_id, updated_at)
-     VALUES ($1, $2, NOW())
-     ON CONFLICT (transaction_id) DO UPDATE SET
-       amount_rule_id = EXCLUDED.amount_rule_id,
-       updated_at = NOW()
-     RETURNING transaction_id, amount_rule_id AS transaction_badge_rule_id`,
-    [normalizedTransactionId, normalizedAmountRuleId],
-  );
-  return rows[0] ?? null;
-}
-
-export async function setSmsEcheance(id, amountRuleId) {
-  await ensureSmsAuxTables();
-  const normalizedAmountRuleId = String(amountRuleId || '').trim();
-  const { rows } = await pool.query(
-    `SELECT phone_number FROM sms_analysis WHERE sms_id = $1`,
-    [id],
-  );
-  const phoneNumber = String(rows[0]?.phone_number || '').trim();
-  if (!phoneNumber) return null;
-
-  if (!normalizedAmountRuleId) {
-    await pool.query(
-      `INSERT INTO client_badge (phone_number, amount_rule_id, updated_at)
-       VALUES ($1, '', NOW())
-       ON CONFLICT (phone_number) DO UPDATE SET
-         amount_rule_id = '',
-         updated_at = NOW()`,
-      [phoneNumber],
-    );
-    return { sms_id: Number(id), phone_number: phoneNumber, transaction_badge_rule_id: '' };
-  }
-
-  const result = await pool.query(
-    `INSERT INTO client_badge (phone_number, amount_rule_id, updated_at)
-     VALUES ($1, $2, NOW())
-     ON CONFLICT (phone_number) DO UPDATE SET
-       amount_rule_id = EXCLUDED.amount_rule_id,
-       updated_at = NOW()
-     RETURNING phone_number, amount_rule_id AS transaction_badge_rule_id`,
-    [phoneNumber, normalizedAmountRuleId],
-  );
-  return { sms_id: Number(id), ...result.rows[0] };
-}
-
-export async function setManualDate(id, isoDate) {
-  await ensureSmsAuxTables();
-  const normalizedDate = String(isoDate || '').trim();
-  const { rows } = await pool.query(
-    `SELECT phone_number FROM sms_analysis WHERE sms_id = $1`,
-    [id],
-  );
-  const phoneNumber = String(rows[0]?.phone_number || '').trim();
-  if (!phoneNumber) return null;
-
-  if (!normalizedDate) {
-    await pool.query(`DELETE FROM client_manual_date WHERE phone_number = $1`, [phoneNumber]);
-    return { sms_id: Number(id), phone_number: phoneNumber, transaction_manual_date: null };
-  }
-
-  const result = await pool.query(
-    `INSERT INTO client_manual_date (phone_number, manual_date, updated_at)
-     VALUES ($1, $2, NOW())
-     ON CONFLICT (phone_number) DO UPDATE SET
-       manual_date = EXCLUDED.manual_date,
-       updated_at = NOW()
-     RETURNING phone_number, TO_CHAR(manual_date, 'YYYY-MM-DD') AS transaction_manual_date`,
-    [phoneNumber, normalizedDate],
-  );
-  return { sms_id: Number(id), ...result.rows[0] };
 }
 
 export async function setTecno(id, marked) {
@@ -638,7 +344,6 @@ export async function removeForcedTecno(phone) {
   );
   return rowCount > 0;
 }
-
 export async function getSmsById(id) {
   await ensureSmsAuxTables();
   const { rows } = await pool.query(

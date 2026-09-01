@@ -6,19 +6,9 @@ import ingestRouter from './routes/ingest.js';
 import { smsRouter } from './routes/sms.js';
 import aiRouter from './routes/ai.js';
 import accessTokensRouter from './routes/accessTokens.js';
-import transactionsRouter from './routes/transactions.js';
 import authRouter from './routes/auth.js';
-import improvementsRouter from './routes/improvements.js';
 import tecnoRouter from './routes/tecno.js';
 import pushRouter from '../routes/push.js';
-import agentAuthRouter from './routes/agentAuth.js';
-import agentRouter from './routes/agent.js';
-import agentsRouter from './routes/agents.js';
-import flagsRouter from './routes/flags.js';
-import openchatRouter from './routes/openchat.js';
-import automaticSmsPartnerRouter from '../automaticSms/partnerRoutes.js';
-import automaticSmsMobileRouter from '../automaticSms/mobileRoutes.js';
-import automaticSmsAdminRouter from '../automaticSms/adminRoutes.js';
 
 /**
  * Cree l'app Express. analysisService est injecte pour la route /sms/:id/reanalyze.
@@ -56,22 +46,8 @@ export function createApp({ analysisService } = {}) {
   }
   app.use('/ai', aiRouter);
   app.use('/access-tokens', accessTokensRouter);
-  app.use('/improvements', improvementsRouter);
   app.use('/tecno', tecnoRouter);
-  app.use('/api/transactions', transactionsRouter());
   app.use('/api/push', pushRouter);
-
-  // Application mobile agent (auth telephone + PIN, session agent).
-  app.use('/agent/auth', agentAuthRouter);
-  app.use('/agent', agentRouter());
-  // Administration des agents (protege par le token admin, consomme par l'Admin web).
-  app.use('/agents', agentsRouter);
-  app.use('/openchat', openchatRouter);
-  // Alertes de signalement (Admin web, protege par le token admin).
-  app.use('/flags', flagsRouter());
-  app.use('/api/partner/v1/automatic-sms', automaticSmsPartnerRouter);
-  app.use('/api/mobile/v1/automatic-sms', automaticSmsMobileRouter);
-  app.use('/automatic-sms', automaticSmsAdminRouter);
 
   app.use((err, _req, res, _next) => {
     console.error('[http] erreur :', err.message);
@@ -86,9 +62,7 @@ export function createApp({ analysisService } = {}) {
  * (mode worker pur, retro-compatible).
  */
 export function startServer({ analysisService } = {}) {
-  if (!process.env.INGEST_TOKEN &&
-      !process.env.ADMIN_TOKEN &&
-      !process.env.AUTOMATIC_SMS_DISPATCHER_TOKEN) {
+  if (!process.env.INGEST_TOKEN && !process.env.ADMIN_TOKEN) {
     console.log('[http] aucun jeton HTTP configure : serveur HTTP desactive');
     return null;
   }

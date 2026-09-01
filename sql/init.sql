@@ -1,11 +1,3 @@
-DO $$ BEGIN
-  CREATE TYPE admin_processing_status_enum AS ENUM ('ANALYSIS', 'UNLOCKED', 'TREATED', 'PROBLEM');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
--- Statuts additionnels (module agent) : NOUVEAU (badge « Reçu ») + EN_ATTENTE.
-ALTER TYPE admin_processing_status_enum ADD VALUE IF NOT EXISTS 'NOUVEAU';
-ALTER TYPE admin_processing_status_enum ADD VALUE IF NOT EXISTS 'EN_ATTENTE';
-
 CREATE TABLE IF NOT EXISTS sms (
   id          BIGSERIAL PRIMARY KEY,
   sender      TEXT        NOT NULL,
@@ -14,11 +6,8 @@ CREATE TABLE IF NOT EXISTS sms (
   smsc_ts     TIMESTAMPTZ,
   modem_index INTEGER,
   raw         TEXT,
-  status      TEXT        NOT NULL DEFAULT 'received',
-  admin_processing_status admin_processing_status_enum NOT NULL DEFAULT 'ANALYSIS'
+  status      TEXT        NOT NULL DEFAULT 'received'
 );
-
-ALTER TABLE sms ADD COLUMN IF NOT EXISTS admin_processing_status admin_processing_status_enum NOT NULL DEFAULT 'ANALYSIS';
 
 CREATE INDEX IF NOT EXISTS idx_sms_received_at ON sms (received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sms_sender      ON sms (sender);
@@ -54,7 +43,6 @@ CREATE TABLE IF NOT EXISTS sms_analysis (
   balance         NUMERIC(14,2),
   currency        TEXT         DEFAULT 'FCFA',
   phone_number    TEXT,
-  imei            TEXT,
   reference       TEXT,
   transaction_id  TEXT,
   confidence      NUMERIC(5,2) NOT NULL DEFAULT 0,
@@ -67,17 +55,7 @@ CREATE TABLE IF NOT EXISTS sms_analysis (
 
 CREATE INDEX IF NOT EXISTS idx_sms_analysis_operator ON sms_analysis (operator);
 CREATE INDEX IF NOT EXISTS idx_sms_analysis_created  ON sms_analysis (created_at DESC);
-ALTER TABLE sms_analysis ADD COLUMN IF NOT EXISTS imei TEXT;
 CREATE INDEX IF NOT EXISTS idx_sms_analysis_phone_number ON sms_analysis (phone_number);
-CREATE INDEX IF NOT EXISTS idx_sms_analysis_imei ON sms_analysis (imei);
-
--- IMEI connu par client. Permet d'afficher l'IMEI sur les prochaines
--- transactions du meme numero meme si l'analyse du SMS ne le porte pas.
-CREATE TABLE IF NOT EXISTS client_imei (
-  phone_number TEXT PRIMARY KEY,
-  imei         TEXT NOT NULL,
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 
 -- Notes administratives attachees au numero de transaction.
 CREATE TABLE IF NOT EXISTS transaction_note (
@@ -92,36 +70,6 @@ CREATE TABLE IF NOT EXISTS sms_note (
   note       TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- Badge manuel attache au numero de transaction. La valeur reference une
--- regle du module Amelioration (amountRules[].id).
-CREATE TABLE IF NOT EXISTS transaction_badge (
-  transaction_id TEXT PRIMARY KEY,
-  amount_rule_id TEXT NOT NULL DEFAULT '',
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Echeance connue par client. Elle s'applique aux anciennes et futures
--- transactions du meme numero client.
-CREATE TABLE IF NOT EXISTS client_badge (
-  phone_number   TEXT PRIMARY KEY,
-  amount_rule_id TEXT NOT NULL DEFAULT '',
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-INSERT INTO client_badge (phone_number, amount_rule_id, updated_at)
-SELECT DISTINCT ON (a.phone_number)
-  a.phone_number,
-  tb.amount_rule_id,
-  tb.updated_at
-FROM transaction_badge tb
-JOIN sms_analysis a ON a.transaction_id = tb.transaction_id
-WHERE a.phone_number IS NOT NULL
-  AND TRIM(a.phone_number) <> ''
-  AND tb.amount_rule_id IS NOT NULL
-  AND TRIM(tb.amount_rule_id) <> ''
-ORDER BY a.phone_number, tb.updated_at DESC
-ON CONFLICT (phone_number) DO NOTHING;
 
 -- Numeros marques TECNO en permanence (Liste TECNO du module dedie).
 --   auto=true   : numero verrouille (saisi manuellement OU importe du partenaire).
@@ -197,7 +145,6 @@ ALTER TABLE ai_provider ALTER COLUMN name DROP NOT NULL;
 --   system_prompt : prompt systeme partage par les analyseurs LLM.
 --   recaptcha_enabled : active/desactive la verification reCAPTCHA au login admin.
 --   recaptcha_site_key / recaptcha_secret_key : cles Google reCAPTCHA v2.
---   improvement_amount_rules : regles couleur/montant du module Amelioration.
 CREATE TABLE IF NOT EXISTS parametre (
     cle             VARCHAR(64) PRIMARY KEY,
     valeur          TEXT,
@@ -250,80 +197,3 @@ CREATE TABLE IF NOT EXISTS push_subscription (
 
 CREATE INDEX IF NOT EXISTS idx_push_subscription_active ON push_subscription (is_active);
 CREATE INDEX IF NOT EXISTS idx_push_subscription_user_id ON push_subscription (user_id);
-
--- ===========================================================================
--- Module AGENT : application mobile des agents (verification des paiements).
--- ===========================================================================
-
--- Un agent est cree par l'admin (name, city, phone). Le PIN est choisi par
--- l'agent lui-meme a la 1ere connexion (must_set_pin=true tant qu'il est vide).
---   pin_hash / pin_salt : PBKDF2 (hex). NULL tant que le PIN n'est pas defini.
---   L'admin peut reinitialiser le PIN (efface hash/sel + must_set_pin=true).
-CREATE TABLE IF NOT EXISTS agent (
-    id            BIGSERIAL   PRIMARY KEY,
-    name          TEXT        NOT NULL,
-    city          TEXT        NOT NULL,
-    phone         TEXT        NOT NULL UNIQUE,
-    pin_hash      TEXT,
-    pin_salt      TEXT,
-    must_set_pin  BOOLEAN     NOT NULL DEFAULT true,
-    is_active     BOOLEAN     NOT NULL DEFAULT true,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_login_at TIMESTAMPTZ,
-    photo_url     TEXT
-);
-ALTER TABLE agent ADD COLUMN IF NOT EXISTS photo_url TEXT;
-
--- Sessions agent (miroir de admin_session). Token opaque hache en SHA-256.
-CREATE TABLE IF NOT EXISTS agent_session (
-    id               BIGSERIAL   PRIMARY KEY,
-    agent_id         BIGINT      NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
-    token_hash       CHAR(64)    NOT NULL UNIQUE,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_activity_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at       TIMESTAMPTZ NOT NULL,
-    revoked_at       TIMESTAMPTZ
-);
-
-CREATE INDEX IF NOT EXISTS idx_agent_session_token_hash ON agent_session (token_hash);
-CREATE INDEX IF NOT EXISTS idx_agent_session_expires_at ON agent_session (expires_at);
-CREATE INDEX IF NOT EXISTS idx_agent_session_agent_id   ON agent_session (agent_id);
-
--- Numeros archives par un agent (acces rapide + declencheur de notification
--- sur nouvelle transaction).
-CREATE TABLE IF NOT EXISTS agent_archive (
-    id           BIGSERIAL   PRIMARY KEY,
-    agent_id     BIGINT      NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
-    phone_number TEXT        NOT NULL,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (agent_id, phone_number)
-);
-
-CREATE INDEX IF NOT EXISTS idx_agent_archive_phone ON agent_archive (phone_number);
-
--- Notifications agent (alimentees par polling cote app).
---   type : 'flag_treated' | 'archived_new_transaction'
-CREATE TABLE IF NOT EXISTS agent_notification (
-    id             BIGSERIAL   PRIMARY KEY,
-    agent_id       BIGINT      NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
-    type           TEXT        NOT NULL,
-    phone_number   TEXT,
-    sms_id         BIGINT,
-    transaction_id TEXT,
-    message        TEXT        NOT NULL DEFAULT '',
-    is_read        BOOLEAN     NOT NULL DEFAULT false,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_agent_notification_agent ON agent_notification (agent_id, is_read);
-
--- Un numero ne peut etre archive que par UN seul agent (unicite globale).
-CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_archive_phone ON agent_archive (phone_number);
-
--- Signalement d'une transaction par un agent : on retient qui a signale pour
--- pouvoir le notifier quand l'admin traite le SMS (admin_processing_status).
--- flag_ack_at : horodatage de prise en compte cote admin (alerte flottante).
-ALTER TABLE sms ADD COLUMN IF NOT EXISTS flagged_by_agent_id BIGINT;
-ALTER TABLE sms ADD COLUMN IF NOT EXISTS flagged_at TIMESTAMPTZ;
-ALTER TABLE sms ADD COLUMN IF NOT EXISTS flag_ack_at TIMESTAMPTZ;

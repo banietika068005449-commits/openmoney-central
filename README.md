@@ -34,7 +34,7 @@ analyse est absente ou incomplete.
 - `q`, `phone` et `transactionId` cherchent aussi dans `sms.sender`,
   `sms.content`, `sms.point_de_vente` et `sms.uuid`.
 - Les filtres qui dependent de champs calcules (`amount`, `operatorPrefix`,
-  `imei`, `tecno`) restent limites aux lignes qui possedent les donnees
+  `tecno`) restent limites aux lignes qui possedent les donnees
   d'analyse correspondantes.
 - Les routes `/api/analysis/summary` et `/api/analysis/sms` restent centrees sur
   les transactions analysees, pour conserver la compatibilite mobile/support.
@@ -59,7 +59,6 @@ npm start
 | `DATABASE_URL`      | (requis)| Postgres connection string (Neon)                       |
 | `POLL_INTERVAL_MS`  | `5000`  | Intervalle entre deux passes du worker                  |
 | `BATCH_SIZE`        | `50`    | Nombre de SMS traites par passe                         |
-| `AUTOMATIC_SMS_DISPATCHER_TOKEN` | (requis pour SMS Dispatcher) | Jeton Bearer dédié à l’unique app Android ; même secret que celui injecté au build |
 
 ### Synchro TECNO « Tecno Ya Niongo »
 

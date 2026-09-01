@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdminToken } from '../middleware/admin.js';
 import {
-  listSms, getSmsById, deleteSmsById, resetForReanalyze, setSmsStatus, setSmsImei, setSmsNote, setSmsEcheance, setTransactionNote, setTransactionBadge, setManualDate, setTecno,
+  listSms, getSmsById, deleteSmsById, resetForReanalyze, setSmsStatus, setSmsNote, setTransactionNote, setTecno,
 } from '../../repos/sms.repo.js';
 
 /**
@@ -21,13 +21,9 @@ export function smsRouter({ analysisService }) {
     operatorPrefix: z.enum(['MTN', 'AIRTEL']).optional(),
     phone:    z.string().trim().optional(),
     transactionId: z.string().trim().optional(),
-    imei:     z.string().trim().regex(/^\d{0,32}$/).optional(),
-    hasImei:  z.coerce.boolean().optional(),
     hasNote:  z.coerce.boolean().optional(),
-    flagged:  z.coerce.boolean().optional(),
     tecno:    z.enum(['only', 'hide']).optional(),
     amount: z.coerce.number().int().positive().optional(),
-    amountRule: z.coerce.number().int().positive().optional(),
     q:        z.string().optional(),
     sort:     z.enum(['recent', 'ancient']).optional(),
     period:   z.enum(['all', 'days', 'week']).optional().default('all'),
@@ -77,17 +73,6 @@ export function smsRouter({ analysisService }) {
     } catch (e) { next(e); }
   });
 
-  router.patch('/:id/imei', async (req, res, next) => {
-    try {
-      const body = z.object({
-        imei: z.string().trim().regex(/^\d{0,32}$/),
-      }).parse(req.body);
-      const updated = await setSmsImei(req.params.id, body.imei);
-      if (!updated) return res.status(404).json({ error: 'SMS introuvable' });
-      res.json(updated);
-    } catch (e) { next(e); }
-  });
-
   router.patch('/:id/note', async (req, res, next) => {
     try {
       const body = z.object({
@@ -95,28 +80,6 @@ export function smsRouter({ analysisService }) {
       }).parse(req.body);
       const updated = await setSmsNote(req.params.id, body.note);
       if (!updated) return res.status(404).json({ error: 'SMS introuvable' });
-      res.json(updated);
-    } catch (e) { next(e); }
-  });
-
-  router.patch('/:id/echeance', async (req, res, next) => {
-    try {
-      const body = z.object({
-        amountRuleId: z.string().trim().max(160).default(''),
-      }).parse(req.body);
-      const updated = await setSmsEcheance(req.params.id, body.amountRuleId);
-      if (!updated) return res.status(404).json({ error: 'Client introuvable pour ce SMS' });
-      res.json(updated);
-    } catch (e) { next(e); }
-  });
-
-  router.patch('/:id/transaction-date', async (req, res, next) => {
-    try {
-      const body = z.object({
-        date: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).default(''),
-      }).parse(req.body);
-      const updated = await setManualDate(req.params.id, body.date);
-      if (!updated) return res.status(404).json({ error: 'Client introuvable pour ce SMS' });
       res.json(updated);
     } catch (e) { next(e); }
   });
@@ -141,20 +104,6 @@ export function smsRouter({ analysisService }) {
         note: z.string().max(5000).default(''),
       }).parse(req.body);
       const updated = await setTransactionNote(params.transactionId, body.note);
-      if (!updated) return res.status(404).json({ error: 'Transaction introuvable' });
-      res.json(updated);
-    } catch (e) { next(e); }
-  });
-
-  router.patch('/transaction-badge/:transactionId', async (req, res, next) => {
-    try {
-      const params = z.object({
-        transactionId: z.string().trim().min(1).max(160),
-      }).parse(req.params);
-      const body = z.object({
-        amountRuleId: z.string().trim().max(160).default(''),
-      }).parse(req.body);
-      const updated = await setTransactionBadge(params.transactionId, body.amountRuleId);
       if (!updated) return res.status(404).json({ error: 'Transaction introuvable' });
       res.json(updated);
     } catch (e) { next(e); }
