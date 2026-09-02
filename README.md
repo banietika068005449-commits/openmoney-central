@@ -39,6 +39,19 @@ analyse est absente ou incomplete.
 - Les routes `/api/analysis/summary` et `/api/analysis/sms` restent centrees sur
   les transactions analysees, pour conserver la compatibilite mobile/support.
 
+### Exports des transactions filtrees
+
+Deux routes protegees par la session administrateur reprennent les memes filtres
+que `GET /sms` et exportent toutes les lignes correspondantes :
+
+- `GET /sms/export.pdf` renvoie un rapport PDF multipage ;
+- `GET /sms/export-images.zip` renvoie les pages PNG dans une archive ZIP.
+
+Un filtre metier est obligatoire. Les resultats sont lus avec un curseur dans un
+snapshot PostgreSQL en lecture seule, sans charger toute la liste en memoire.
+Les reponses utilisent `Content-Disposition`, `X-Export-Count` et
+`Cache-Control: no-store`.
+
 ## Prerequis
 - Node.js 20+
 - Une base Neon Postgres (la meme pour A et B)

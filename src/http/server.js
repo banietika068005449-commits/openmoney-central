@@ -25,6 +25,7 @@ export function createApp({ analysisService } = {}) {
   app.use(cors({
     origin: allowed.includes('*') ? true : allowed,
     credentials: false,
+    exposedHeaders: ['Content-Disposition', 'X-Export-Count'],
   }));
 
   app.use(express.json({

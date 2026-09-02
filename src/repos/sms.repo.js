@@ -1,4 +1,5 @@
 import { pool } from '../db.js';
+import QueryStream from 'pg-query-stream';
 
 // SELECT join sms + sms_analysis qui produit exactement le shape attendu par
 // le frontend (cf. frontend central/src/pages/SmsPage.jsx).
@@ -49,12 +50,10 @@ async function ensureSmsAuxTables() {
 }
 
 /**
- * Liste paginee + filtres. Renvoie items + total.
- *
- * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, operatorPrefix?:'MTN'|'AIRTEL', phone?:string, transactionId?:string, hasNote?:boolean, tecno?:'only'|'hide', amount?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
+ * Construit la clause SQL commune a la liste et aux exports afin qu'un meme
+ * filtre retourne toujours exactement les memes transactions.
  */
-export async function listSms(f) {
-  await ensureSmsAuxTables();
+export function buildSmsFilter(f = {}) {
   const where = [];
   const params = [];
   const addParam = (value) => {
@@ -108,7 +107,7 @@ export async function listSms(f) {
   if (f.hasNote)  { where.push(`(sn.note IS NOT NULL AND TRIM(sn.note) <> '')`); }
   if (f.tecno === 'only') where.push(`ct.phone_number IS NOT NULL`);
   else if (f.tecno === 'hide') where.push(`ct.phone_number IS NULL`);
-  if (f.amount) { params.push(f.amount);              where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
+  if (f.amount) { params.push(f.amount); where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
   if (f.q) {
     const q = String(f.q || '').trim();
     if (q) {
@@ -159,11 +158,29 @@ export async function listSms(f) {
     params.push(f.hour);
     where.push(`EXTRACT(HOUR FROM s.received_at AT TIME ZONE 'Africa/Brazzaville') = $${params.length}`);
   }
-  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+  return {
+    whereSql: where.length ? 'WHERE ' + where.join(' AND ') : '',
+    params,
+  };
+}
+
+function getSmsOrderBy(sort) {
+  return sort === 'ancient' ? 's.received_at ASC, s.id ASC' : 's.received_at DESC, s.id DESC';
+}
+
+/**
+ * Liste paginee + filtres. Renvoie items + total.
+ *
+ * @param {{limit:number, offset:number, status?:string, smsType?:string, operator?:string, operatorPrefix?:'MTN'|'AIRTEL', phone?:string, transactionId?:string, hasNote?:boolean, tecno?:'only'|'hide', amount?:number, q?:string, sort?:'recent'|'ancient', period?:'all'|'days'|'week', date?:string, hour?:number}} f
+ */
+export async function listSms(f) {
+  await ensureSmsAuxTables();
+  const { whereSql, params: filterParams } = buildSmsFilter(f);
 
   const totalQ = await pool.query(
     `SELECT COUNT(*)::int AS n ${BASE_SELECT} ${whereSql}`,
-    params,
+    filterParams,
   );
 
   // Ces indicateurs alimentent le dashboard admin. Ils portent toujours sur
@@ -183,8 +200,8 @@ export async function listSms(f) {
     ${BASE_SELECT}
   `);
 
-  params.push(f.limit, f.offset);
-  const orderBy = f.sort === 'ancient' ? 's.received_at ASC' : 's.received_at DESC';
+  const params = [...filterParams, f.limit, f.offset];
+  const orderBy = getSmsOrderBy(f.sort);
   const itemsQ = await pool.query(
     `SELECT ${COLUMNS} ${BASE_SELECT} ${whereSql}
      ORDER BY ${orderBy}
@@ -206,6 +223,59 @@ export async function listSms(f) {
       sommeDepots: Number(rawStats.deposit_sum),
     },
   };
+}
+
+/**
+ * Flux stable de toutes les transactions filtrees. Le premier element contient
+ * les metadonnees, les suivants contiennent une ligne. Le snapshot PostgreSQL
+ * empeche les nouvelles transactions de deplacer les lignes pendant l'export.
+ */
+export async function* streamSmsForExport(f, { batchSize = 250 } = {}) {
+  await ensureSmsAuxTables();
+  const client = await pool.connect();
+  let transactionOpen = false;
+
+  try {
+    await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    transactionOpen = true;
+    const { whereSql, params } = buildSmsFilter(f);
+    const totalQ = await client.query(
+      `SELECT COUNT(*)::int AS n ${BASE_SELECT} ${whereSql}`,
+      params,
+    );
+    const total = Number(totalQ.rows[0]?.n || 0);
+    yield { type: 'meta', total };
+
+    if (total > 0) {
+      const orderBy = getSmsOrderBy(f.sort);
+      const query = new QueryStream(
+        `SELECT ${COLUMNS},
+           COUNT(*) OVER (PARTITION BY NULLIF(TRIM(a.phone_number), ''))::int AS duplicate_count
+         ${BASE_SELECT} ${whereSql}
+         ORDER BY ${orderBy}`,
+        params,
+        { batchSize },
+      );
+      const rows = client.query(query);
+      for await (const row of rows) {
+        yield { type: 'row', row };
+      }
+    }
+
+    await client.query('COMMIT');
+    transactionOpen = false;
+  } catch (error) {
+    if (transactionOpen) {
+      try { await client.query('ROLLBACK'); } catch { /* preserve original error */ }
+      transactionOpen = false;
+    }
+    throw error;
+  } finally {
+    if (transactionOpen) {
+      try { await client.query('ROLLBACK'); } catch { /* connection is being released */ }
+    }
+    client.release();
+  }
 }
 
 export async function setSmsStatus(id, status) {
