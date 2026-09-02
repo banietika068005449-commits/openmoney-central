@@ -4,11 +4,11 @@ import { PassThrough } from 'node:stream';
 import {
   describeExportFilters,
   hasMeaningfulExportFilter,
+  MAX_PNG_EXPORT_ROWS,
   makeExportFilename,
   normalizeReportRow,
   renderReportSvg,
-  writeSmsPdfExport,
-  writeSmsPngZipExport,
+  writeSmsPngExport,
 } from './smsExport.service.js';
 
 class MemoryResponse extends PassThrough {
@@ -106,8 +106,7 @@ test('export SMS: normalise une ligne comme la liste admin', () => {
 
 test('export SMS: produit des noms stables dans le fuseau metier', () => {
   const date = new Date('2026-09-02T13:30:00.000Z');
-  assert.equal(makeExportFilename('pdf', date), 'openmoney-transactions-2026-09-02_14-30.pdf');
-  assert.equal(makeExportFilename('png', date), 'openmoney-transactions-2026-09-02_14-30-png.zip');
+  assert.equal(makeExportFilename(date), 'openmoney-transactions-2026-09-02_14-30.png');
 });
 
 test('export SMS: echappe les valeurs dans les pages SVG', () => {
@@ -117,31 +116,44 @@ test('export SMS: echappe les valeurs dans les pages SVG', () => {
     amount: 5000,
   }], {
     total: 1,
-    totalPages: 1,
     generatedAt: '02/09/2026 14:30',
     filters: 'Recherche: <test & contrôle>',
-  }, 1);
+  });
 
   assert.match(svg, /06&lt;&amp;123/);
   assert.match(svg, /Recherche: &lt;test &amp; contrôle&gt;/);
   assert.doesNotMatch(svg, /<test & contrôle>/);
+  assert.match(svg, /height="361"/);
 });
 
-test('export SMS: genere un PDF telechargeable', async () => {
-  const { response, body } = await collectExport(writeSmsPdfExport, fakeRows(2));
+test('export SMS: genere directement une image PNG unique', async () => {
+  const { response, body } = await collectExport(writeSmsPngExport, fakeRows(22));
   assert.equal(response.statusCode, 200);
-  assert.equal(response.headers['Content-Type'], 'application/pdf');
-  assert.equal(response.headers['X-Export-Count'], '2');
-  assert.equal(body.subarray(0, 4).toString(), '%PDF');
+  assert.equal(response.headers['Content-Type'], 'image/png');
+  assert.equal(response.headers['X-Export-Count'], '22');
+  assert.match(response.headers['Content-Disposition'], /openmoney-transactions-2026-09-02_14-30\.png/);
+  assert.deepEqual([...body.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.ok(body.length > 1_000);
 });
 
-test('export SMS: genere un ZIP avec plusieurs pages PNG', async () => {
-  const { response, body } = await collectExport(writeSmsPngZipExport, fakeRows(22));
+test('export SMS: accepte exactement 500 transactions dans une seule image', async () => {
+  const { response, body } = await collectExport(writeSmsPngExport, fakeRows(MAX_PNG_EXPORT_ROWS));
   assert.equal(response.statusCode, 200);
-  assert.equal(response.headers['Content-Type'], 'application/zip');
-  assert.equal(response.headers['X-Export-Count'], '22');
-  assert.equal(body.subarray(0, 2).toString(), 'PK');
-  assert.ok(body.includes(Buffer.from('openmoney-transactions-page-001.png')));
-  assert.ok(body.includes(Buffer.from('openmoney-transactions-page-002.png')));
+  assert.equal(response.headers['X-Export-Count'], String(MAX_PNG_EXPORT_ROWS));
+  assert.deepEqual([...body.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+});
+
+test('export SMS: refuse une image de plus de 500 transactions', async () => {
+  await assert.rejects(
+    () => collectExport(writeSmsPngExport, fakeRows(MAX_PNG_EXPORT_ROWS + 1)),
+    (error) => {
+      assert.equal(error.code, 'EXPORT_TOO_LARGE');
+      assert.equal(error.status, 413);
+      assert.deepEqual(error.details, {
+        limit: MAX_PNG_EXPORT_ROWS,
+        total: MAX_PNG_EXPORT_ROWS + 1,
+      });
+      return true;
+    },
+  );
 });

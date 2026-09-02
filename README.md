@@ -31,8 +31,14 @@ Cette route part de la table brute `sms` avec une jointure gauche vers
 `sms_analysis`, afin qu'une trame recue par l'API reste visible meme si son
 analyse est absente ou incomplete.
 
-- `q`, `phone` et `transactionId` cherchent aussi dans `sms.sender`,
-  `sms.content`, `sms.point_de_vente` et `sms.uuid`.
+- `q` recherche un numero, une reference, un identifiant de transaction, un
+  UUID ou un identifiant SMS. Les espaces, tirets et indicatifs des numeros
+  sont toleres ; `sms.sender` et `sms.content` servent de fallback aux trames
+  qui ne sont pas encore analysees.
+- La recherche partielle repose sur des index PostgreSQL `pg_trgm` afin de
+  rester rapide lorsque le volume de transactions augmente.
+- `phone` et `transactionId` conservent leurs recherches specialisees dans les
+  champs analyses et les trames brutes.
 - Les filtres qui dependent de champs calcules (`amount`, `operatorPrefix`,
   `tecno`) restent limites aux lignes qui possedent les donnees
   d'analyse correspondantes.
@@ -41,16 +47,14 @@ analyse est absente ou incomplete.
 
 ### Exports des transactions filtrees
 
-Deux routes protegees par la session administrateur reprennent les memes filtres
-que `GET /sms` et exportent toutes les lignes correspondantes :
-
-- `GET /sms/export.pdf` renvoie un rapport PDF multipage ;
-- `GET /sms/export-images.zip` renvoie les pages PNG dans une archive ZIP.
+La route protegee `GET /sms/export.png` reprend les memes filtres que `GET /sms`
+et renvoie directement une image PNG verticale contenant toutes les lignes
+correspondantes, dans la limite de 500 transactions.
 
 Un filtre metier est obligatoire. Les resultats sont lus avec un curseur dans un
-snapshot PostgreSQL en lecture seule, sans charger toute la liste en memoire.
-Les reponses utilisent `Content-Disposition`, `X-Export-Count` et
-`Cache-Control: no-store`.
+snapshot PostgreSQL en lecture seule. Au-dela de 500 resultats, la route renvoie
+`EXPORT_TOO_LARGE` (HTTP 413) pour demander un filtre plus precis. La reponse
+utilise `Content-Disposition`, `X-Export-Count` et `Cache-Control: no-store`.
 
 ## Prerequis
 - Node.js 20+

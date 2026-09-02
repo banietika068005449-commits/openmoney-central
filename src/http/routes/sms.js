@@ -5,7 +5,7 @@ import {
   listSms, getSmsById, deleteSmsById, resetForReanalyze, setSmsStatus, setSmsNote, setTransactionNote, setTecno,
 } from '../../repos/sms.repo.js';
 import {
-  SmsExportError, writeSmsPdfExport, writeSmsPngZipExport,
+  SmsExportError, writeSmsPngExport,
 } from '../../services/smsExport.service.js';
 
 const FILTER_SCHEMA_SHAPE = {
@@ -18,7 +18,7 @@ const FILTER_SCHEMA_SHAPE = {
   hasNote:  z.coerce.boolean().optional(),
   tecno:    z.enum(['only', 'hide']).optional(),
   amount: z.coerce.number().int().positive().optional(),
-  q:        z.string().optional(),
+  q:        z.string().trim().max(120).optional(),
   sort:     z.enum(['recent', 'ancient']).optional(),
   period:   z.enum(['all', 'days', 'week']).optional().default('all'),
   date:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -51,7 +51,7 @@ async function handleExport(req, res, next, writer) {
       return;
     }
     if (error instanceof SmsExportError) {
-      res.status(error.status).json({ error: error.code });
+      res.status(error.status).json({ error: error.code, ...error.details });
       return;
     }
     if (error instanceof z.ZodError) {
@@ -77,20 +77,22 @@ export function smsRouter({ analysisService }) {
       const f = listSchema.parse(req.query);
       const r = await listSms(f);
       res.json(r);
-    } catch (e) { next(e); }
+    } catch (e) {
+      if (e instanceof z.ZodError) {
+        res.status(400).json({ error: 'INVALID_SMS_FILTERS', details: e.flatten() });
+        return;
+      }
+      next(e);
+    }
   });
 
-  // Toujours declarer les exports avant /:id pour que "export.pdf" ne soit
+  // Toujours declarer l'export avant /:id pour que "export.png" ne soit
   // jamais interprete comme un identifiant de SMS.
-  router.get('/export.pdf', (req, res, next) => (
-    handleExport(req, res, next, writeSmsPdfExport)
+  router.get('/export.png', (req, res, next) => (
+    handleExport(req, res, next, writeSmsPngExport)
   ));
 
-  router.get('/export-images.zip', (req, res, next) => (
-    handleExport(req, res, next, writeSmsPngZipExport)
-  ));
-
-  router.get('/:id', async (req, res, next) => {
+  router.get('/:id(\\d+)', async (req, res, next) => {
     try {
       const sms = await getSmsById(req.params.id);
       if (!sms) return res.status(404).json({ error: 'SMS introuvable' });

@@ -65,6 +65,51 @@ test('listSms: q retrouve une trame brute recue sans sms_analysis', async () => 
   assert.ok(hasSms(result, sms.id), 'la trame brute doit apparaitre dans la recherche admin');
 });
 
+test('listSms: q retrouve les identifiants analyses avec casse et format de numero differents', async () => {
+  const marker = `REF-SEARCH-${Date.now()}`;
+  const sms = await insertTestSms({ content: 'Transaction analysee pour la recherche par identifiant.' });
+  await insertAnalysis(sms.id, {
+    phoneNumber: '06 612 34 56',
+    reference: marker,
+    transactionId: `TX-${marker}`,
+  });
+
+  const byInternationalPhone = await listSms({ limit: 10, offset: 0, q: '+242 06 612-34-56', sort: 'recent' });
+  const byReference = await listSms({ limit: 10, offset: 0, q: marker.toLowerCase().slice(4), sort: 'recent' });
+  const byUuid = await listSms({ limit: 10, offset: 0, q: String(sms.uuid).toUpperCase(), sort: 'recent' });
+  const bySmsId = await listSms({ limit: 10, offset: 0, q: String(sms.id), sort: 'recent' });
+
+  assert.ok(hasSms(byInternationalPhone, sms.id), 'le numero international doit retrouver le numero local formate');
+  assert.ok(hasSms(byReference, sms.id), 'une reference partielle doit etre insensible a la casse');
+  assert.ok(hasSms(byUuid, sms.id), 'un UUID complet doit identifier la trame');
+  assert.ok(hasSms(bySmsId, sms.id), 'un identifiant SMS numerique doit identifier la trame');
+});
+
+test('listSms: q reste limite aux identifiants et au fallback de la trame brute', async () => {
+  const marker = `NON_IDENTIFIER_${Date.now()}`;
+  const contentMarker = `CONTENUSEULEMENT${randomUUID().replace(/[^a-f]/gi, '').toUpperCase()}`;
+  const amount = 800_000 + Math.floor(Math.random() * 100_000);
+  const sms = await insertTestSms({
+    content: 'Transaction analysee sans le marqueur reserve aux champs exclus.',
+    pointDeVente: marker,
+  });
+  await insertAnalysis(sms.id, { amount });
+  await pool.query(
+    `INSERT INTO sms_note (sms_id, note) VALUES ($1, $2)
+     ON CONFLICT (sms_id) DO UPDATE SET note = EXCLUDED.note`,
+    [sms.id, marker],
+  );
+  const contentOnlySms = await insertTestSms({ content: `Description ordinaire ${contentMarker}.` });
+
+  const byPointOfSale = await listSms({ limit: 10, offset: 0, q: marker, sort: 'recent' });
+  const byAmount = await listSms({ limit: 10, offset: 0, q: String(amount), sort: 'recent' });
+  const byOrdinaryContent = await listSms({ limit: 10, offset: 0, q: contentMarker, sort: 'recent' });
+
+  assert.equal(hasSms(byPointOfSale, sms.id), false, 'le point de vente et la note ne doivent pas alimenter q');
+  assert.equal(hasSms(byAmount, sms.id), false, 'le montant doit rester dans son filtre dedie');
+  assert.equal(hasSms(byOrdinaryContent, contentOnlySms.id), false, 'le contenu ordinaire ne doit pas devenir une recherche plein texte');
+});
+
 test('listSms: phone cherche aussi dans sender/content normalises', async () => {
   const sms = await insertTestSms({
     content: 'ADMIN_FILTER_PHONE paiement recu du client 055 998 877.',

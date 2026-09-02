@@ -1,5 +1,3 @@
-import { ZipArchive } from 'archiver';
-import PDFDocument from 'pdfkit';
 import sharp from 'sharp';
 import { finished } from 'node:stream/promises';
 import { streamSmsForExport } from '../repos/sms.repo.js';
@@ -11,30 +9,15 @@ const TEXT = '#172033';
 const MUTED = '#64748B';
 const BORDER = '#D8E1EC';
 const ROW_ALT = '#F8FAFC';
-const ROWS_PER_PAGE = 21;
-
-const PDF = {
-  margin: 32,
-  tableY: 100,
-  headerHeight: 24,
-  rowHeight: 20,
-  columns: [
-    { key: 'tecno', label: 'TECNO', width: 65, align: 'center' },
-    { key: 'date', label: 'DATE', width: 120 },
-    { key: 'phone', label: 'NUMÉRO / OPÉRATEUR', width: 260 },
-    { key: 'duplicate', label: 'DOUBLON', width: 100, align: 'center' },
-    { key: 'note', label: 'NOTE', width: 80, align: 'center' },
-    { key: 'amount', label: 'MONTANT', width: 153, align: 'right' },
-  ],
-};
+export const MAX_PNG_EXPORT_ROWS = 500;
 
 const PNG = {
   width: 1600,
-  height: 1131,
   margin: 60,
   tableY: 205,
   headerHeight: 44,
   rowHeight: 36,
+  footerHeight: 76,
   columns: [
     { key: 'tecno', label: 'TECNO', width: 110, align: 'center' },
     { key: 'date', label: 'DATE', width: 220 },
@@ -51,11 +34,12 @@ const FILTER_KEYS = [
 ];
 
 export class SmsExportError extends Error {
-  constructor(code, status) {
+  constructor(code, status, details = {}) {
     super(code);
     this.name = 'SmsExportError';
     this.code = code;
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -141,7 +125,7 @@ export function describeExportFilters(filters = {}) {
   return labels.join('  |  ');
 }
 
-export function makeExportFilename(kind, date = new Date()) {
+export function makeExportFilename(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Africa/Brazzaville',
     year: 'numeric',
@@ -153,9 +137,7 @@ export function makeExportFilename(kind, date = new Date()) {
   }).formatToParts(date);
   const get = (type) => parts.find((part) => part.type === type)?.value || '00';
   const stamp = `${get('year')}-${get('month')}-${get('day')}_${get('hour')}-${get('minute')}`;
-  return kind === 'pdf'
-    ? `openmoney-transactions-${stamp}.pdf`
-    : `openmoney-transactions-${stamp}-png.zip`;
+  return `openmoney-transactions-${stamp}.png`;
 }
 
 function reportMeta(filters, total, now = new Date()) {
@@ -163,95 +145,7 @@ function reportMeta(filters, total, now = new Date()) {
     total,
     generatedAt: formatDate(now),
     filters: describeExportFilters(filters),
-    totalPages: Math.max(1, Math.ceil(total / ROWS_PER_PAGE)),
   };
-}
-
-function drawPdfHeader(doc, meta, pageNumber) {
-  const { margin, tableY, columns, headerHeight } = PDF;
-  const tableWidth = columns.reduce((sum, column) => sum + column.width, 0);
-
-  doc.save().roundedRect(margin, 28, 30, 30, 5).fill(BRAND_BLUE);
-  doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(10).text('OM', margin, 38, {
-    width: 30,
-    align: 'center',
-    lineBreak: false,
-  }).restore();
-
-  doc.fillColor(BRAND_BLUE).font('Helvetica-Bold').fontSize(17).text('OPEN', margin + 40, 31, { continued: true });
-  doc.fillColor(BRAND_GREEN).text('MONEY');
-  doc.fillColor(TEXT).font('Helvetica-Bold').fontSize(13).text('TRANSACTIONS FILTRÉES', margin + 190, 34, {
-    width: tableWidth - 190,
-    align: 'right',
-    lineBreak: false,
-  });
-
-  doc.fillColor(MUTED).font('Helvetica').fontSize(7.5).text(meta.filters, margin, 68, {
-    width: tableWidth,
-    height: 12,
-    ellipsis: true,
-    lineBreak: false,
-  });
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(TEXT).text(
-    `${formatInteger(meta.total)} transaction(s)  ·  Généré le ${meta.generatedAt}`,
-    margin,
-    84,
-    { width: tableWidth, lineBreak: false },
-  );
-
-  doc.rect(margin, tableY, tableWidth, headerHeight).fill(BRAND_BLUE);
-  let x = margin;
-  for (const column of columns) {
-    doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(7.5).text(
-      column.label,
-      x + 6,
-      tableY + 8,
-      {
-        width: column.width - 12,
-        align: column.align || 'left',
-        lineBreak: false,
-      },
-    );
-    x += column.width;
-  }
-
-  doc.fillColor(MUTED).font('Helvetica').fontSize(7).text(
-    `OpenMoney  ·  Page ${pageNumber} / ${meta.totalPages}`,
-    margin,
-    doc.page.height - 19,
-    { width: tableWidth, align: 'right', lineBreak: false },
-  );
-}
-
-function drawPdfRow(doc, normalized, rowIndex) {
-  const { margin, tableY, headerHeight, rowHeight, columns } = PDF;
-  const y = tableY + headerHeight + rowIndex * rowHeight;
-  const tableWidth = columns.reduce((sum, column) => sum + column.width, 0);
-  const dark = normalized.isTecno;
-  const background = dark ? BRAND_NAVY : (rowIndex % 2 ? ROW_ALT : '#FFFFFF');
-  const foreground = dark ? '#FFFFFF' : TEXT;
-
-  doc.rect(margin, y, tableWidth, rowHeight).fill(background);
-  if (!dark && normalized.isTreated) {
-    doc.rect(margin, y, 3, rowHeight).fill(BRAND_GREEN);
-  }
-  doc.moveTo(margin, y + rowHeight).lineTo(margin + tableWidth, y + rowHeight)
-    .lineWidth(0.4).strokeColor(dark ? '#34349A' : BORDER).stroke();
-
-  let x = margin;
-  for (const column of columns) {
-    doc.fillColor(foreground)
-      .font(column.key === 'amount' ? 'Helvetica-Bold' : 'Helvetica')
-      .fontSize(7.5)
-      .text(normalized[column.key], x + 6, y + 6.5, {
-        width: column.width - 12,
-        height: rowHeight - 8,
-        align: column.align || 'left',
-        ellipsis: true,
-        lineBreak: false,
-      });
-    x += column.width;
-  }
 }
 
 function xml(value) {
@@ -272,8 +166,9 @@ function svgText({ x, y, text, size = 18, weight = 400, fill = TEXT, anchor = 's
   return `<text x="${x}" y="${y}" fill="${fill}" font-family="Inter,Arial,DejaVu Sans,sans-serif" font-size="${size}" font-weight="${weight}" text-anchor="${anchor}" dominant-baseline="middle">${xml(text)}</text>`;
 }
 
-export function renderReportSvg(rows, meta, pageNumber) {
-  const { width, height, margin, tableY, headerHeight, rowHeight, columns } = PNG;
+export function renderReportSvg(rows, meta) {
+  const { width, margin, tableY, headerHeight, rowHeight, footerHeight, columns } = PNG;
+  const height = tableY + headerHeight + rows.length * rowHeight + footerHeight;
   const tableWidth = columns.reduce((sum, column) => sum + column.width, 0);
   const elements = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
@@ -349,7 +244,7 @@ export function renderReportSvg(rows, meta, pageNumber) {
   elements.push(svgText({
     x: width - margin,
     y: height - 34,
-    text: `OpenMoney  ·  Page ${pageNumber} / ${meta.totalPages}`,
+    text: `OpenMoney  ·  ${formatInteger(meta.total)} transaction(s)`,
     size: 14,
     fill: MUTED,
     anchor: 'end',
@@ -369,6 +264,13 @@ async function openExport(filters, rowStreamFactory) {
     await iterator.return?.();
     throw new SmsExportError('NO_TRANSACTIONS_TO_EXPORT', 404);
   }
+  if (total > MAX_PNG_EXPORT_ROWS) {
+    await iterator.return?.();
+    throw new SmsExportError('EXPORT_TOO_LARGE', 413, {
+      limit: MAX_PNG_EXPORT_ROWS,
+      total,
+    });
+  }
   return { iterator, total };
 }
 
@@ -376,7 +278,7 @@ function assertNotAborted(signal) {
   if (signal?.aborted) throw new SmsExportError('EXPORT_ABORTED', 499);
 }
 
-export async function writeSmsPdfExport({
+export async function writeSmsPngExport({
   filters,
   response,
   signal,
@@ -385,103 +287,33 @@ export async function writeSmsPdfExport({
 }) {
   const { iterator, total } = await openExport(filters, rowStreamFactory);
   const meta = reportMeta(filters, total, now);
-  const filename = makeExportFilename('pdf', now);
-  let document;
+  const filename = makeExportFilename(now);
 
   try {
     assertNotAborted(signal);
-    response.status(200);
-    response.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-      'Cache-Control': 'no-store',
-      'X-Export-Count': String(total),
-    });
-
-    document = new PDFDocument({
-      autoFirstPage: false,
-      bufferPages: false,
-      compress: true,
-      layout: 'landscape',
-      margin: PDF.margin,
-      size: 'A4',
-      info: {
-        Title: 'OpenMoney - Transactions filtrées',
-        Author: 'OpenMoney',
-        Subject: meta.filters,
-      },
-    });
-    document.pipe(response);
-    const outputFinished = finished(response, { cleanup: true });
-
-    let index = 0;
+    const rows = [];
     for await (const item of iterator) {
       if (item.type !== 'row') continue;
       assertNotAborted(signal);
-      const rowIndex = index % ROWS_PER_PAGE;
-      if (rowIndex === 0) {
-        const pageNumber = Math.floor(index / ROWS_PER_PAGE) + 1;
-        document.addPage();
-        drawPdfHeader(document, meta, pageNumber);
-      }
-      drawPdfRow(document, normalizeReportRow(item.row), rowIndex);
-      index += 1;
+      rows.push(item.row);
     }
-    document.end();
-    await outputFinished;
-  } catch (error) {
-    document?.destroy(error);
-    await iterator.return?.();
-    throw error;
-  }
-}
 
-export async function writeSmsPngZipExport({
-  filters,
-  response,
-  signal,
-  now = new Date(),
-  rowStreamFactory = streamSmsForExport,
-}) {
-  const { iterator, total } = await openExport(filters, rowStreamFactory);
-  const meta = reportMeta(filters, total, now);
-  const filename = makeExportFilename('png', now);
-  const archive = new ZipArchive({ zlib: { level: 6 } });
-
-  try {
+    const svg = renderReportSvg(rows, meta);
+    const png = await sharp(Buffer.from(svg)).png({ compressionLevel: 9 }).toBuffer();
     assertNotAborted(signal);
+
     response.status(200);
     response.set({
-      'Content-Type': 'application/zip',
+      'Content-Type': 'image/png',
       'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': String(png.length),
       'Cache-Control': 'no-store',
       'X-Export-Count': String(total),
     });
-    archive.pipe(response);
     const outputFinished = finished(response, { cleanup: true });
-
-    let pageRows = [];
-    let pageNumber = 0;
-    const appendPage = async () => {
-      if (pageRows.length === 0) return;
-      pageNumber += 1;
-      const svg = renderReportSvg(pageRows, meta, pageNumber);
-      const png = await sharp(Buffer.from(svg)).png({ compressionLevel: 9 }).toBuffer();
-      archive.append(png, { name: `openmoney-transactions-page-${String(pageNumber).padStart(3, '0')}.png` });
-      pageRows = [];
-    };
-
-    for await (const item of iterator) {
-      if (item.type !== 'row') continue;
-      assertNotAborted(signal);
-      pageRows.push(item.row);
-      if (pageRows.length === ROWS_PER_PAGE) await appendPage();
-    }
-    await appendPage();
-    await archive.finalize();
+    response.end(png);
     await outputFinished;
   } catch (error) {
-    archive.abort();
     await iterator.return?.();
     throw error;
   }

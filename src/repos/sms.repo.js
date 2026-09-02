@@ -61,6 +61,21 @@ export function buildSmsFilter(f = {}) {
     return `$${params.length}`;
   };
   const digitsOnly = (value) => String(value || '').replace(/\D/g, '');
+  const phoneDigitVariants = (value) => {
+    const digits = digitsOnly(value);
+    if (!digits) return [];
+    const variants = new Set([digits]);
+    const withoutCountryCode = digits.startsWith('00242')
+      ? digits.slice(5)
+      : digits.startsWith('242')
+        ? digits.slice(3)
+        : '';
+    if (withoutCountryCode) variants.add(withoutCountryCode);
+    for (const variant of [...variants]) {
+      if (/^[456]\d{7}$/.test(variant)) variants.add(`0${variant}`);
+    }
+    return [...variants].filter(Boolean);
+  };
 
   if (f.status)   { params.push(f.status);            where.push(`s.status = $${params.length}`); }
   if (f.operator) { params.push(f.operator);          where.push(`a.operator = $${params.length}`); }
@@ -109,26 +124,46 @@ export function buildSmsFilter(f = {}) {
   else if (f.tecno === 'hide') where.push(`ct.phone_number IS NULL`);
   if (f.amount) { params.push(f.amount); where.push(`ROUND((a.amount)::numeric * 100)::bigint = $${params.length}`); }
   if (f.q) {
-    const q = String(f.q || '').trim();
+    const q = String(f.q || '').normalize('NFKC').trim().replace(/\s+/g, ' ');
     if (q) {
       const textParam = addParam(`%${q}%`);
       const parts = [
-        `s.sender ILIKE ${textParam}`,
-        `s.content ILIKE ${textParam}`,
-        `s.point_de_vente ILIKE ${textParam}`,
-        `s.uuid::text ILIKE ${textParam}`,
         `a.phone_number ILIKE ${textParam}`,
         `a.transaction_id ILIKE ${textParam}`,
         `a.reference ILIKE ${textParam}`,
       ];
-      const qDigits = digitsOnly(q);
-      if (qDigits) {
-        const digitParam = addParam(`%${qDigits}%`);
-        parts.push(
-          `regexp_replace(COALESCE(a.phone_number, ''), '[^0-9]', '', 'g') LIKE ${digitParam}`,
-          `regexp_replace(COALESCE(s.sender, ''), '[^0-9]', '', 'g') LIKE ${digitParam}`,
-          `regexp_replace(COALESCE(s.content, ''), '[^0-9]', '', 'g') LIKE ${digitParam}`,
-        );
+
+      // Une trame sans sms_analysis reste recherchable lorsqu'elle contient une
+      // reference alphanumerique vraisemblable. Un mot ou un montant ordinaires
+      // ne transforment pas q en recherche plein texte dans tout le SMS.
+      if (/[a-z]/i.test(q) && /\d/.test(q)) parts.push(`s.content ILIKE ${textParam}`);
+
+      if (/^\d+$/.test(q) && q.length <= 18) {
+        const numericId = Number(q);
+        if (Number.isSafeInteger(numericId) && numericId > 0) {
+          const idParam = addParam(numericId);
+          parts.push(`s.id = ${idParam}`);
+        }
+      }
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(q)) {
+        const uuidParam = addParam(q);
+        parts.push(`s.uuid = ${uuidParam}::uuid`);
+      }
+
+      const digitVariants = phoneDigitVariants(q);
+      const looksLikePhone = digitVariants.some((digits) => (
+        /^0[456]\d{2,}$/.test(digits) || /^[456]\d{7}$/.test(digits)
+      ));
+      if (/^[+\d\s().-]+$/.test(q) && looksLikePhone) {
+        parts.push(`s.sender ILIKE ${textParam}`);
+        for (const digits of digitVariants) {
+          const digitParam = addParam(`%${digits}%`);
+          parts.push(
+            `regexp_replace(COALESCE(a.phone_number, ''), '[^0-9]', '', 'g') LIKE ${digitParam}`,
+            `regexp_replace(COALESCE(s.sender, ''), '[^0-9]', '', 'g') LIKE ${digitParam}`,
+            `regexp_replace(COALESCE(s.content, ''), '[^0-9]', '', 'g') LIKE ${digitParam}`,
+          );
+        }
       }
       where.push(`(${parts.join(' OR ')})`);
     }

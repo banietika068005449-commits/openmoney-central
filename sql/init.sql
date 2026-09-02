@@ -13,6 +13,19 @@ CREATE INDEX IF NOT EXISTS idx_sms_received_at ON sms (received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sms_sender      ON sms (sender);
 CREATE INDEX IF NOT EXISTS idx_sms_status      ON sms (status);
 
+-- Recherche Admin par identifiants partiels. Les index trigrammes couvrent les
+-- numeros/references tels qu'ils sont affiches ainsi que les numeros presents
+-- uniquement dans la trame brute avant analyse.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS idx_sms_sender_trgm
+  ON sms USING GIN (sender gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_sms_content_trgm
+  ON sms USING GIN (content gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_sms_sender_digits_trgm
+  ON sms USING GIN ((regexp_replace(COALESCE(sender, ''), '[^0-9]', '', 'g')) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_sms_content_digits_trgm
+  ON sms USING GIN ((regexp_replace(COALESCE(content, ''), '[^0-9]', '', 'g')) gin_trgm_ops);
+
 -- Colonnes pour l'ingestion HTTP depuis les points de vente.
 -- uuid       : identifiant emis par le PDV (utilise dans la reponse acceptes[]).
 -- empreinte  : SHA-256 hex (64 chars) de
@@ -56,6 +69,14 @@ CREATE TABLE IF NOT EXISTS sms_analysis (
 CREATE INDEX IF NOT EXISTS idx_sms_analysis_operator ON sms_analysis (operator);
 CREATE INDEX IF NOT EXISTS idx_sms_analysis_created  ON sms_analysis (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sms_analysis_phone_number ON sms_analysis (phone_number);
+CREATE INDEX IF NOT EXISTS idx_sms_analysis_phone_trgm
+  ON sms_analysis USING GIN (phone_number gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_sms_analysis_phone_digits_trgm
+  ON sms_analysis USING GIN ((regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g')) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_sms_analysis_reference_trgm
+  ON sms_analysis USING GIN (reference gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_sms_analysis_transaction_id_trgm
+  ON sms_analysis USING GIN (transaction_id gin_trgm_ops);
 
 -- Notes administratives attachees au numero de transaction.
 CREATE TABLE IF NOT EXISTS transaction_note (
